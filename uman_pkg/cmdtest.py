@@ -11,6 +11,7 @@ in sandbox.
 from collections import namedtuple
 import os
 import re
+import shlex
 import struct
 import time
 
@@ -537,7 +538,12 @@ def run_tests(sandbox, specs, args, col):  # pylint: disable=R0914
     cmd = build_ut_cmd(sandbox, specs, full=args.full,
                        verbose=args.test_verbose, legacy=args.legacy,
                        manual=args.manual)
-    tout.info(f"Running: {' '.join(cmd)}")
+
+    if args.dry_run:
+        tout.notice(shlex.join(cmd))
+        return 0
+
+    tout.info(f"Running: {shlex.join(cmd)}")
 
     # Set up environment with persistent data directory
     build_dir = settings.get('build_dir', '/tmp/b')
@@ -558,7 +564,10 @@ def run_tests(sandbox, specs, args, col):  # pylint: disable=R0914
             return 1
     elapsed = time.time() - start_time
 
-    # Detect old U-Boot that doesn't understand -F flag
+    # Detect old U-Boot that doesn't understand -E or -F flags
+    if 'failed while parsing option: -E' in result.stdout:
+        tout.error('U-Boot does not support -E flag; use -L for legacy mode')
+        return 1
     if 'failed while parsing option: -F' in result.stdout:
         tout.error('U-Boot does not support -F flag; use -f to run all tests')
         return 1

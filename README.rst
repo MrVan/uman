@@ -42,12 +42,12 @@ Shell Setup
 Add this to your ``~/.bashrc`` (or ``~/.zshrc``) to allow uman to use shell
 variables without needing to export them::
 
-    um() { USRC="$USRC" command um ${b:+-B "$b"} "$@"; }
+    um() { b="$b" USRC="$USRC" command um "$@"; }
 
-This passes:
+This passes shell variables as environment variables to uman:
 
-- ``$b`` as the ``-B`` (board) option
-- ``$USRC`` as an environment variable for the U-Boot source directory
+- ``$b`` for the board name (used by build, pytest, config, test)
+- ``$USRC`` for the U-Boot source directory
 
 Then reload your shell config::
 

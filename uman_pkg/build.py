@@ -346,9 +346,9 @@ def run(args):
     Returns:
         int: Exit code
     """
-    board = args.board or os.environ.get('b')
+    board = args.board or args.board_opt or os.environ.get('b')
     if not board:
-        tout.error('Board is required: use -b BOARD or set $b')
+        tout.error('Board is required: use -B BOARD or set $b')
         return 1
 
     if not setup_uboot_dir():

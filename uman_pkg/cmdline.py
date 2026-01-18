@@ -194,6 +194,9 @@ def add_build_subparser(subparsers):
         'build', aliases=ALIASES['build'],
         help='Build U-Boot for a board')
     bld.add_argument(
+        '-B', metavar='BOARD', dest='board_opt',
+        help='Board name (alternative to positional; or set $b)')
+    bld.add_argument(
         'board', nargs='?', metavar='BOARD',
         help='Board name to build')
     bld.add_argument('-a', '--adjust-cfg', action='append', metavar='CFG',

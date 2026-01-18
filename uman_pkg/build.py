@@ -160,6 +160,20 @@ def buildman_output(*args):
     return command.output(get_buildman(), *args).strip()
 
 
+def get_cmd(args, board, build_dir):
+    """Build the full buildman command
+
+    Args:
+        args (argparse.Namespace): Arguments from cmdline
+        board (str): Board name to build
+        build_dir (str): Path to build directory
+
+    Returns:
+        list: Full buildman command including 'buildman' as first element
+    """
+    return ['buildman'] + get_buildman_args(args, board, build_dir)
+
+
 def get_buildman_args(args, board, build_dir):
     """Build the buildman arguments
 

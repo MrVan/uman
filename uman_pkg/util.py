@@ -98,7 +98,7 @@ def exec_cmd(cmd, dry_run=False, env=None, capture=True):
                                      stdout='', stderr=stderr)
 
     return command.run_pipe([cmd], env=env, capture=capture,
-                            raise_on_error=False)
+                            capture_stderr=True, raise_on_error=False)
 
 
 def run_pytest(test_name, board='sandbox', build_dir=None, quiet=True,

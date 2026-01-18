@@ -4323,9 +4323,11 @@ class TestFoo:
         self.assertIn('Test spec required', err.getvalue())
 
     @mock.patch.object(cmdpy, 'get_uboot_dir')
-    def test_run_c_test_method_required(self, mock_uboot_dir):
+    @mock.patch.object(cmdpy, 'get_sandbox_path')
+    def test_run_c_test_method_required(self, mock_sandbox, mock_uboot_dir):
         """Test run_c_test fails without method name"""
         mock_uboot_dir.return_value = self.test_dir
+        mock_sandbox.return_value = '/path/to/sandbox'
 
         # Create test file without method
         test_fs_dir = os.path.join(self.test_dir, 'test/py/tests/test_fs')
@@ -4437,8 +4439,13 @@ class TestPytestPollute(TestBase):
     """Tests for the pytest --pollute functionality"""
 
     def setUp(self):
+        super().setUp()
+        self.orig_dir = os.getcwd()
         tout.init(tout.WARNING)
-        self.test_dir = None
+
+    def tearDown(self):
+        os.chdir(self.orig_dir)
+        super().tearDown()
 
     def test_pollute_flag_parsing(self):
         """Test --pollute flag is parsed correctly"""
@@ -4620,9 +4627,11 @@ test_fs.py::TestFs::test_ext4
         args = make_args(cmd='pytest', board='sandbox', build=True,
                          pollute='test_dm_foo')
         with mock.patch.object(build, 'setup_uboot_dir', return_value=True):
-            with mock.patch.object(cmdpy, 'exec_cmd', mock_exec_cmd):
-                with terminal.capture():
-                    control.run_command(args)
+            with mock.patch.object(cmdpy, 'get_uboot_dir',
+                                   return_value=self.test_dir):
+                with mock.patch.object(cmdpy, 'exec_cmd', mock_exec_cmd):
+                    with terminal.capture():
+                        control.run_command(args)
 
         # First command should be buildman to pollute directory
         self.assertIn('buildman', cap[0])
@@ -4649,8 +4658,10 @@ test_fs.py::TestFs::test_ext4
         args = make_args(cmd='pytest', board='sandbox', build=True,
                          lto=True, pollute='test_dm_foo')
         with mock.patch.object(build, 'setup_uboot_dir', return_value=True):
-            with mock.patch.object(cmdpy, 'exec_cmd', mock_exec_cmd):
-                with terminal.capture():
-                    control.run_command(args)
+            with mock.patch.object(cmdpy, 'get_uboot_dir',
+                                   return_value=self.test_dir):
+                with mock.patch.object(cmdpy, 'exec_cmd', mock_exec_cmd):
+                    with terminal.capture():
+                        control.run_command(args)
 
         self.assertNotIn('-L', cap[0])

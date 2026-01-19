@@ -203,7 +203,7 @@ making it easier to step through commits during development.
 - ``gn`` / ``grep-next`` PATTERN: Search us/next log for pattern
 - ``gr`` / ``git-rebase`` [N]: Open interactive rebase editor (to upstream or HEAD~N)
 - ``cs`` / ``commit-show``: Show the current commit
-- ``ol`` / ``oneline-log`` [N]: Show oneline log (from upstream, or last N commits)
+- ``ol`` / ``oneline-log`` [N|PATH]: Show oneline log (from upstream, last N commits, or filtered by PATH)
 - ``pe`` / ``peek``: Show last 10 commits (git log --oneline -n10 --decorate)
 - ``pm`` / ``patch-merge``: Apply patch from rebase-apply directory
 - ``ra`` / ``rebase-abort``: Abort the current rebase (stashes changes, shows recovery info)
@@ -217,7 +217,7 @@ making it easier to step through commits during development.
 - ``rs`` / ``rebase-skip``: Skip current commit (git rebase --skip)
 - ``sc`` / ``show-commit``: Show the current commit with stats
 - ``sd`` / ``show-diff`` [REF]: Show a commit using difftool (default HEAD)
-- ``sl`` / ``stat-log`` [N]: Show log with stats (from upstream, or last N commits)
+- ``sl`` / ``stat-log`` [N|PATH]: Show log with stats (from upstream, last N commits, or filtered by PATH)
 - ``st`` / ``stash``: Stash changes (git stash)
 - ``us`` / ``set-upstream``: Set upstream branch to m/master
 - ``ust`` / ``unstash``: Pop stashed changes (git stash pop)
@@ -244,6 +244,12 @@ The ``rn`` command behaves differently depending on context:
 
     # Show last 10 commits
     uman git ol 10
+
+    # Show commits touching a specific file
+    uman git ol boot/scene_txtin.c
+
+    # Show log with stats for commits touching a file
+    uman git sl common/cmd_ut.c
 
     # Rebase to upstream, stop at first commit for editing
     uman git rb

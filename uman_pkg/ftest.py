@@ -1222,6 +1222,20 @@ class TestGitSubcommand(TestBase):
         self.assertEqual(
             ('git', 'log', '--oneline', '--decorate', '-5'), call_args)
 
+    def test_do_ol_with_path(self):
+        """Test do_ol with file path filters by that file"""
+        args = cmdline.parse_args(['git', 'ol', 'boot/scene.c'])
+        with mock.patch('u_boot_pylib.command.run_one') as mock_run:
+            mock_run.return_value = mock.Mock(return_code=0)
+            with mock.patch.object(cmdgit, 'get_upstream',
+                                   return_value='origin/main'):
+                result = cmdgit.do_ol(args)
+        self.assertEqual(0, result)
+        call_args = mock_run.call_args[0]
+        self.assertEqual(
+            ('git', 'log', '--oneline', '--decorate', 'origin/main..',
+             '--', 'boot/scene.c'), call_args)
+
     def test_do_pe(self):
         """Test do_pe shows last 10 commits"""
         args = cmdline.parse_args(['git', 'pe'])
@@ -1488,6 +1502,20 @@ class TestGitSubcommand(TestBase):
         self.assertEqual(0, result)
         call_args = mock_run.call_args[0]
         self.assertEqual(('git', 'log', '--stat', '-5'), call_args)
+
+    def test_do_sl_with_path(self):
+        """Test do_sl with file path filters by that file"""
+        args = cmdline.parse_args(['git', 'sl', 'common/cmd_ut.c'])
+        with mock.patch('u_boot_pylib.command.run_one') as mock_run:
+            mock_run.return_value = mock.Mock(return_code=0)
+            with mock.patch.object(cmdgit, 'get_upstream',
+                                   return_value='origin/main'):
+                result = cmdgit.do_sl(args)
+        self.assertEqual(0, result)
+        call_args = mock_run.call_args[0]
+        self.assertEqual(
+            ('git', 'log', '--stat', 'origin/main..', '--', 'common/cmd_ut.c'),
+            call_args)
 
     def test_do_cm(self):
         """Test do_cm runs git commit"""

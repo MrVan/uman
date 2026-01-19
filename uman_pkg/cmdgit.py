@@ -590,12 +590,12 @@ def do_ol(args):
 
     Args:
         args (argparse.Namespace): Arguments from cmdline
-            args.arg: Number of commits to show, or None for all from upstream
+            args.arg: Number of commits, or file path, or None for all
 
     Returns:
         int: Exit code from git log
     """
-    if args.arg:
+    if args.arg and args.arg.isdigit():
         # Show last N commits
         cmd = ['git', 'log', '--oneline', '--decorate', f'-{args.arg}']
     else:
@@ -605,6 +605,8 @@ def do_ol(args):
             tout.error('Cannot determine upstream branch')
             return 1
         cmd = ['git', 'log', '--oneline', '--decorate', f'{upstream}..']
+        if args.arg:
+            cmd.extend(['--', args.arg])
 
     result = command.run_one(*cmd, capture=False, raise_on_error=False)
     return result.return_code
@@ -1013,12 +1015,12 @@ def do_sl(args):
 
     Args:
         args (argparse.Namespace): Arguments from cmdline
-            args.arg: Number of commits to show, or None for all from upstream
+            args.arg: Number of commits, or file path, or None for all
 
     Returns:
         int: Exit code from git log --stat
     """
-    if args.arg:
+    if args.arg and args.arg.isdigit():
         cmd = ['git', 'log', '--stat', f'-{args.arg}']
     else:
         upstream = get_upstream()
@@ -1026,6 +1028,8 @@ def do_sl(args):
             tout.error('Cannot determine upstream branch')
             return 1
         cmd = ['git', 'log', '--stat', f'{upstream}..']
+        if args.arg:
+            cmd.extend(['--', args.arg])
 
     result = command.run_one(*cmd, capture=False, raise_on_error=False)
     return result.return_code

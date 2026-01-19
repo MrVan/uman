@@ -135,7 +135,7 @@ def add_pytest_subparser(subparsers):
         '-C', '--c-test', action='store_true',
         help='Run just the C test part (assumes setup done with -SP)')
     pyt.add_argument(
-        '-f', '--full', action='store_true',
+        '--flattree-too', action='store_true',
         help='Run both live-tree and flat-tree tests (default: live-tree only)')
     pyt.add_argument(
         '-F', '--find', metavar='PATTERN',
@@ -262,7 +262,7 @@ def add_test_subparser(subparsers):
         '-B', '--board', metavar='BOARD', default='sandbox',
         help='Board to build/test (default: sandbox)')
     test.add_argument(
-        '-f', '--full', action='store_true',
+        '--flattree-too', action='store_true',
         help='Run both live-tree and flat-tree tests (default: live-tree only)')
     test.add_argument(
         '-l', '--list', action='store_true', dest='list_tests',

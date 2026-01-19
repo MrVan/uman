@@ -128,7 +128,7 @@ def make_args(**kwargs):
         'extra_args': [],
         'find': None,
         'force': False,
-        'full': False,
+        'flattree_too': False,
         'gdb': False,
         'gdbserver': None,
         'list_boards': False,
@@ -3586,7 +3586,7 @@ int main(void) { return 0; }
         self.assertEqual([], args.tests)
         self.assertFalse(args.list_tests)
         self.assertFalse(args.list_suites)
-        self.assertFalse(args.full)
+        self.assertFalse(args.flattree_too)
         self.assertFalse(args.test_verbose)
 
         # Test with test names
@@ -3601,9 +3601,9 @@ int main(void) { return 0; }
         args = parser.parse_args(['test', '-s'])
         self.assertTrue(args.list_suites)
 
-        # Test with -f flag
-        args = parser.parse_args(['test', '-f'])
-        self.assertTrue(args.full)
+        # Test with --flattree-too flag
+        args = parser.parse_args(['test', '--flattree-too'])
+        self.assertTrue(args.flattree_too)
 
         # Test with -V flag
         args = parser.parse_args(['test', '-V'])
@@ -3770,7 +3770,7 @@ int main(void) { return 0; }
         self.assertEqual(('/sb', '-T', '-F', '-c', 'ut -E dm'), cap[0])
 
     def test_run_tests_full(self):
-        """Test run_tests with full flag (both tree types)"""
+        """Test run_tests with --flattree-too flag (both tree types)"""
         cap = []
 
         def mock_run(*cmd_args, **_kwargs):
@@ -3778,7 +3778,7 @@ int main(void) { return 0; }
             return command.CommandResult(return_code=0,
                                          stdout='Result: PASS dm_test\n')
 
-        args = cmdline.parse_args(['test', '-f', 'dm'])
+        args = cmdline.parse_args(['test', '--flattree-too', 'dm'])
         col = terminal.Color()
         with mock.patch.object(command, 'run_one', mock_run):
             with mock.patch.object(cmdtest, 'ensure_dm_init_files',
@@ -4496,7 +4496,7 @@ test_fs.py::TestFs::test_ext4
                 stdout=collect_output,
                 stderr='')
             args = argparse.Namespace(board='sandbox', build_dir=None,
-                                      test_spec=None, build=False, full=False)
+                                      test_spec=None, build=False, flattree_too=False)
             tests = cmdpy.collect_tests(args)
 
         self.assertEqual(3, len(tests))
@@ -4517,7 +4517,7 @@ test_fs.py::TestFs::test_ext4
 
         with mock.patch('subprocess.Popen', mock_popen):
             args = argparse.Namespace(board='sandbox', build_dir=None,
-                                      lto=False, full=False)
+                                      lto=False, flattree_too=False)
             env = {}
             tests = ['tests/test_ut.py::test_ut[ut_dm_foo]',
                      'tests/test_ut.py::test_ut[ut_dm_bar]']
@@ -4555,7 +4555,7 @@ test_fs.py::TestFs::test_ext4
         with mock.patch('subprocess.Popen', mock_popen):
             with mock.patch.object(settings, 'get', return_value='/tmp/b'):
                 args = argparse.Namespace(board='sandbox', build_dir=None,
-                                          lto=False, full=False)
+                                          lto=False, flattree_too=False)
                 cmdpy.pollute_run([], 'test_target', args, {})
 
         self.assertIn('--build-dir', captured_cmd)
@@ -4568,19 +4568,20 @@ test_fs.py::TestFs::test_ext4
             mock_run.return_value = mock.Mock(
                 return_code=0, stdout='', stderr='')
             args = argparse.Namespace(board='sandbox', build_dir=None,
-                                      test_spec=None, build=False, full=False)
+                                      test_spec=None, build=False, flattree_too=False)
             cmdpy.collect_tests(args)
 
         cmd = mock_run.call_args[0][0][0]
         self.assertIn('--no-full', cmd)
 
     def test_collect_tests_full_flag(self):
-        """Test collect_tests omits --no-full when full=True"""
+        """Test collect_tests omits --no-full when flattree_too=True"""
         with mock.patch.object(command, 'run_pipe') as mock_run:
             mock_run.return_value = mock.Mock(
                 return_code=0, stdout='', stderr='')
             args = argparse.Namespace(board='sandbox', build_dir=None,
-                                      test_spec=None, build=False, full=True)
+                                      test_spec=None, build=False,
+                                      flattree_too=True)
             cmdpy.collect_tests(args)
 
         cmd = mock_run.call_args[0][0][0]
@@ -4593,7 +4594,7 @@ test_fs.py::TestFs::test_ext4
                 return_code=4, stdout='',
                 stderr='error: unrecognized arguments: --no-full')
             args = argparse.Namespace(board='sandbox', build_dir=None,
-                                      test_spec=None, build=False, full=False)
+                                      test_spec=None, build=False, flattree_too=False)
             with terminal.capture() as (_, err):
                 result = cmdpy.collect_tests(args)
 
@@ -4614,13 +4615,13 @@ test_fs.py::TestFs::test_ext4
 
         with mock.patch('subprocess.Popen', mock_popen):
             args = argparse.Namespace(board='sandbox', build_dir=None,
-                                      lto=False, full=False)
+                                      lto=False, flattree_too=False)
             cmdpy.pollute_run([], 'test_target', args, {})
 
         self.assertIn('--no-full', captured_cmd)
 
     def test_pollute_run_full_flag(self):
-        """Test pollute_run omits --no-full when full=True"""
+        """Test pollute_run omits --no-full when flattree_too=True"""
         captured_cmd = []
 
         def mock_popen(cmd, **_kwargs):
@@ -4632,7 +4633,7 @@ test_fs.py::TestFs::test_ext4
 
         with mock.patch('subprocess.Popen', mock_popen):
             args = argparse.Namespace(board='sandbox', build_dir=None,
-                                      lto=False, full=True)
+                                      lto=False, flattree_too=True)
             cmdpy.pollute_run([], 'test_target', args, {})
 
         self.assertNotIn('--no-full', captured_cmd)

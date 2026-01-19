@@ -535,7 +535,7 @@ def run_tests(sandbox, specs, args, col):  # pylint: disable=R0914
     if needs_dm_init(specs) and not ensure_dm_init_files():
         return 1
 
-    cmd = build_ut_cmd(sandbox, specs, full=args.full,
+    cmd = build_ut_cmd(sandbox, specs, full=args.flattree_too,
                        verbose=args.test_verbose, legacy=args.legacy,
                        manual=args.manual)
 

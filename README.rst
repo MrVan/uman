@@ -377,7 +377,7 @@ hooks to PATH.
 - ``-c, --show-cmd``: Show QEMU command line without running tests
 - ``-C, --c-test``: Run just the C test part (assumes setup done with -SP);
   use with -s to show live output
-- ``-f, --full``: Run both live-tree and flat-tree tests (default: live-tree only)
+- ``--flattree-too``: Run both live-tree and flat-tree tests (default: live-tree only)
 - ``-F, --find PATTERN``: Find tests matching PATTERN and show full IDs
 - ``-g``: Run sandbox under gdbserver at localhost:1234
 - ``-G, --gdb``: Launch gdb-multiarch and connect to an existing gdbserver
@@ -526,7 +526,7 @@ without going through pytest. This is faster for quick iteration on C code.
 
 - ``-b, --build``: Build before running tests
 - ``-B, --board BOARD``: Board to build/test (default: sandbox)
-- ``-f, --full``: Run both live-tree and flat-tree tests (default: live-tree only)
+- ``--flattree-too``: Run both live-tree and flat-tree tests (default: live-tree only)
 - ``-l, --list``: List available tests
 - ``--legacy``: Use legacy result parsing (for old U-Boot)
 - ``-m, --manual``: Force manual tests to run (tests with _norun suffix)

@@ -186,7 +186,7 @@ making it easier to step through commits during development.
 - ``cm`` / ``commit``: Commit staged changes (git commit)
 - ``cms`` / ``commit-signoff``: Commit with signoff (git commit --signoff)
 - ``co`` / ``checkout``: Checkout (switch branches or restore files)
-- ``db`` / ``diff-branch``: Diff current commit files against upstream
+- ``db`` / ``diff-branch`` [BRANCH]: Diff current commit files against upstream (or BRANCH)
 - ``dh`` / ``diff-head``: Show diff of top commit using difftool (git difftool HEAD~)
 - ``eg`` / ``errno-grep`` PATTERN: Search include/linux/errno.h for error codes
 - ``et`` / ``edit-todo``: Edit the rebase todo list

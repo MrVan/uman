@@ -1586,6 +1586,21 @@ class TestGitSubcommand(TestBase):
             ('git', 'difftool', 'origin/main', '--', 'file1.c', 'file2.h'),
             call_args)
 
+    def test_do_db_with_branch(self):
+        """Test do_db diffs against specified branch"""
+        args = cmdline.parse_args(['git', 'db', 'expf'])
+        with mock.patch.object(cmdgit, 'git_output') as mock_git:
+            mock_git.side_effect = [
+                '1\t0\tfile1.c',  # numstat output
+            ]
+            with mock.patch('u_boot_pylib.command.run_one') as mock_run:
+                mock_run.return_value = mock.Mock(return_code=0)
+                with terminal.capture():
+                    result = cmdgit.do_db(args)
+        self.assertEqual(0, result)
+        call_args = mock_run.call_args[0]
+        self.assertEqual(('git', 'difftool', 'expf', '--', 'file1.c'), call_args)
+
     def test_do_dh(self):
         """Test do_dh runs git difftool HEAD~"""
         args = cmdline.parse_args(['git', 'dh'])

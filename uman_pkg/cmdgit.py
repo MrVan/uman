@@ -816,11 +816,14 @@ def do_sd(args):
     return result.return_code
 
 
-def do_db(_args):
+def do_db(args):
     """Diff current commit against a branch
 
     Shows the changes in this commit, then runs difftool against a branch
     for only the files changed in this commit.
+
+    Args:
+        args.arg: Optional branch name to diff against (default: upstream)
 
     Returns:
         int: Exit code
@@ -856,13 +859,13 @@ def do_db(_args):
     print(' '.join(files))
 
     # Get target branch
-    upstream = get_upstream()
-    if not upstream:
+    target = args.arg if args.arg else get_upstream()
+    if not target:
         tout.error('Cannot determine upstream branch')
         return 1
 
     # Run difftool for those files
-    result = command.run_one('git', 'difftool', upstream, '--', *files,
+    result = command.run_one('git', 'difftool', target, '--', *files,
                              capture=False, raise_on_error=False)
     return result.return_code
 

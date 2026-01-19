@@ -388,7 +388,7 @@ hooks to PATH.
 - ``-s, --show-output``: Show all test output in real-time (pytest -s)
 - ``-S, --setup-only``: Run only fixture setup (create test images) without tests
 - ``-t, --timing [SECS]``: Show test timing (default min: 0.1s)
-- ``-T, --no-timeout``: Disable test timeout
+- ``--no-timeout``: Disable test timeout
 - ``-x, --exitfirst``: Stop on first test failure
 - ``--pollute TEST``: Find which test pollutes TEST
 - ``--build-dir DIR``: Override build directory
@@ -528,7 +528,7 @@ without going through pytest. This is faster for quick iteration on C code.
 - ``-B, --board BOARD``: Board to build/test (default: sandbox)
 - ``-f, --full``: Run both live-tree and flat-tree tests (default: live-tree only)
 - ``-l, --list``: List available tests
-- ``-L, --legacy``: Use legacy result parsing (for old U-Boot)
+- ``--legacy``: Use legacy result parsing (for old U-Boot)
 - ``-m, --manual``: Force manual tests to run (tests with _norun suffix)
 - ``-r, --results``: Show per-test pass/fail status
 - ``-s, --suites``: List available test suites

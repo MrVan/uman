@@ -249,7 +249,8 @@ class TestUmanCmdline(TestBase):
         self.assertEqual(args.board, 'coreboot')
 
         # Test pytest with --no-timeout flag
-        args = parser.parse_args(['pytest', '-B', 'coreboot', 'test_dm', '-T'])
+        args = parser.parse_args(['pytest', '-B', 'coreboot', 'test_dm',
+                                  '--no-timeout'])
         self.assertEqual(args.board, 'coreboot')
         self.assertEqual(args.test_spec, ['test_dm'])
         self.assertTrue(args.no_timeout)

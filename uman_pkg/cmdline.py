@@ -169,7 +169,7 @@ def add_pytest_subparser(subparsers):
         metavar='SECS',
         help='Show test timing (default min: 0.1s)')
     pyt.add_argument(
-        '-T', '--no-timeout', action='store_true',
+        '--no-timeout', action='store_true',
         help='Disable test timeout')
     pyt.add_argument(
         '-x', '--exitfirst', action='store_true',
@@ -268,7 +268,7 @@ def add_test_subparser(subparsers):
         '-l', '--list', action='store_true', dest='list_tests',
         help='List available tests')
     test.add_argument(
-        '-L', '--legacy', action='store_true',
+        '--legacy', action='store_true',
         help='Use legacy result parsing (for old U-Boot without Result: lines)')
     test.add_argument(
         '-m', '--manual', action='store_true',

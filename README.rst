@@ -391,7 +391,7 @@ hooks to PATH.
 - ``--no-timeout``: Disable test timeout
 - ``-x, --exitfirst``: Stop on first test failure
 - ``--pollute TEST``: Find which test pollutes TEST
-- ``--build-dir DIR``: Override build directory
+- ``-o, --output-dir DIR``: Override build directory (use with -b)
 - ``--gdbserver CHANNEL``: Run sandbox under gdbserver (e.g., localhost:5555)
 
 **Running C Tests Directly**:

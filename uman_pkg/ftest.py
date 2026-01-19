@@ -2786,6 +2786,15 @@ class TestUmanControl(TestBase):  # pylint: disable=too-many-public-methods
         args = cmdline.parse_args(['pytest', '-B', 'sandbox', '--find', 'video'])
         self.assertEqual('video', args.find)
 
+    def test_pytest_build_dir_flag(self):
+        """Test -o/--output-dir flag for pytest"""
+        args = cmdline.parse_args(['pytest', '-B', 'sandbox', '-o', '/custom/dir'])
+        self.assertEqual('/custom/dir', args.output_dir)
+
+        args = cmdline.parse_args(['pytest', '-B', 'sandbox', '--output-dir',
+                                   '/other/dir'])
+        self.assertEqual('/other/dir', args.output_dir)
+
     def test_pytest_find_tests(self):
         """Test finding tests with -F option"""
         def mock_collect(**_kwargs):

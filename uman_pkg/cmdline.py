@@ -178,7 +178,7 @@ def add_pytest_subparser(subparsers):
         '--pollute', metavar='TEST',
         help='Find which test pollutes TEST (causes it to fail)')
     pyt.add_argument(
-        '--build-dir', metavar='DIR',
+        '-o', '--build-dir', metavar='DIR',
         help='Override build directory (default: /tmp/b/BOARD)')
     pyt.add_argument(
         '--gdbserver', metavar='CHANNEL', dest='gdbserver',

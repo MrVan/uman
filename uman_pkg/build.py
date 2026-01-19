@@ -203,13 +203,20 @@ def get_buildman_args(args, board, build_dir):
     return bm_args
 
 
-def build_board(board, dry_run=False, lto=False):
+def build_board(board, dry_run=False, lto=False, adjust_cfg=None,
+                force_reconfig=False, fresh=False, jobs=None, trace=False,
+                output_dir=None):
     """Build U-Boot for a board
 
     Args:
         board (str): Board name to build
         dry_run (bool): If True, just show command without running
         lto (bool): If True, enable LTO (Link Time Optimization)
+        adjust_cfg (list): Kconfig adjustments to apply
+        force_reconfig (bool): Force reconfiguration
+        fresh (bool): Delete build dir first
+        jobs (int): Number of parallel jobs
+        trace (bool): Enable function tracing
 
     Returns:
         bool: True if build succeeded, False otherwise
@@ -217,13 +224,32 @@ def build_board(board, dry_run=False, lto=False):
     if not setup_uboot_dir():
         return False
 
-    build_dir = get_dir(board)
+    build_dir = output_dir or get_dir(board)
+
+    if fresh and os.path.exists(build_dir):
+        tout.info(f'Removing build directory: {build_dir}')
+        if not dry_run:
+            shutil.rmtree(build_dir)
+
     tout.info(f'Building {board}...')
 
-    args = ['-I', '-w', '--boards', board, '-o', build_dir]
+    bm_args = ['-I', '-w', '--boards', board, '-o', build_dir]
     if not lto:
-        args.insert(0, '-L')
-    result = buildman(*args, dry_run=dry_run, capture=False)
+        bm_args.insert(0, '-L')
+    if force_reconfig:
+        bm_args.append('-C')
+    if jobs:
+        bm_args.extend(['-j', str(jobs)])
+    if adjust_cfg:
+        for cfg in adjust_cfg:
+            bm_args.extend(['-a', cfg])
+
+    env = None
+    if trace:
+        env = os.environ.copy()
+        env['FTRACE'] = '1'
+
+    result = buildman(*bm_args, dry_run=dry_run, env=env, capture=False)
 
     if result is None:  # dry-run
         return True

@@ -195,8 +195,8 @@ def build_pytest_cmd(args):
     cmd = ['./test/py/test.py']
     cmd.extend(['-B', args.board])
 
-    if args.build_dir:
-        build_dir = args.build_dir
+    if args.output_dir:
+        build_dir = args.output_dir
     else:
         base_dir = settings.get('build_dir', '/tmp/b')
         build_dir = f'{base_dir}/{args.board}'
@@ -352,8 +352,8 @@ def get_qemu_command(board, args):
         return None
 
     # Build environment for variable expansion
-    if args.build_dir:
-        build_dir = args.build_dir
+    if args.output_dir:
+        build_dir = args.output_dir
     else:
         base_dir = settings.get('build_dir', '/tmp/b')
         build_dir = f'{base_dir}/{board}'
@@ -616,7 +616,12 @@ def run_c_test(args):
 
     # Build if requested
     if args.build:
-        if not build_mod.build_board('sandbox', args.dry_run, args.lto):
+        if not build_mod.build_board(
+                'sandbox', args.dry_run, args.lto,
+                adjust_cfg=args.adjust_cfg,
+                force_reconfig=args.force_reconfig, fresh=args.fresh,
+                jobs=args.jobs, trace=args.trace,
+                output_dir=args.output_dir):
             return 1
 
     sandbox = get_sandbox_path()
@@ -700,8 +705,8 @@ def run_with_gdb(args):
         int: Exit code
     """
     # Get the U-Boot executable path
-    if args.build_dir:
-        build_dir = args.build_dir
+    if args.output_dir:
+        build_dir = args.output_dir
     else:
         base_dir = settings.get('build_dir', '/tmp/b')
         build_dir = f'{base_dir}/{args.board}'
@@ -793,8 +798,8 @@ def collect_tests(args):
     Returns:
         list: Ordered list of test node IDs, or None on error
     """
-    if args.build_dir:
-        build_dir = args.build_dir
+    if args.output_dir:
+        build_dir = args.output_dir
     else:
         base_dir = settings.get('build_dir', '/tmp/b')
         build_dir = f'{base_dir}/{args.board}-pollute'
@@ -897,8 +902,8 @@ def pollute_run(tests, target, args, env):
     Returns:
         bool: True if target test failed, False if it passed
     """
-    if args.build_dir:
-        build_dir = args.build_dir
+    if args.output_dir:
+        build_dir = args.output_dir
     else:
         base_dir = settings.get('build_dir', '/tmp/b')
         build_dir = f'{base_dir}/{args.board}-pollute'
@@ -1128,7 +1133,12 @@ def do_pytest(args):  # pylint: disable=too-many-return-statements,too-many-bran
 
     # Build with um if requested, rather than letting pytest do it
     if args.build:
-        if not build_mod.build_board(args.board, args.dry_run, args.lto):
+        if not build_mod.build_board(
+                args.board, args.dry_run, args.lto,
+                adjust_cfg=args.adjust_cfg,
+                force_reconfig=args.force_reconfig, fresh=args.fresh,
+                jobs=args.jobs, trace=args.trace,
+                output_dir=args.output_dir):
             return 1
         args.build = False  # Don't build again in pytest
 

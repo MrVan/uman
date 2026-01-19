@@ -606,11 +606,16 @@ def do_test(args):  # pylint: disable=R0912
     Returns:
         int: Exit code
     """
-    board = getattr(args, 'board', None) or 'sandbox'
+    board = args.board or 'sandbox'
 
     # Build if requested
     if args.build:
-        if not build.build_board(board, args.dry_run):
+        if not build.build_board(
+                board, args.dry_run, lto=args.lto,
+                adjust_cfg=args.adjust_cfg,
+                force_reconfig=args.force_reconfig, fresh=args.fresh,
+                jobs=args.jobs, trace=args.trace,
+                output_dir=args.output_dir):
             return 1
 
     sandbox = get_sandbox_path()

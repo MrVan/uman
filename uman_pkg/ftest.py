@@ -114,6 +114,7 @@ class GitRepoMixin:
 def make_args(**kwargs):
     """Create an argparse.Namespace with default CI arguments"""
     defaults = {
+        'adjust_cfg': None,
         'all': False,
         'bisect': None,
         'board': None,
@@ -128,14 +129,18 @@ def make_args(**kwargs):
         'extra_args': [],
         'find': None,
         'force': False,
+        'force_reconfig': False,
         'flattree_too': False,
+        'fresh': False,
         'gdb': False,
         'gdbserver': None,
+        'jobs': None,
         'list_boards': False,
         'lto': False,
         'merge': False,
         'no_timeout': False,
         'null': False,
+        'output_dir': None,
         'persist': False,
         'pollute': None,
         'pytest': None,
@@ -147,6 +152,7 @@ def make_args(**kwargs):
         'suites': False,
         'test_spec': [],
         'timing': None,
+        'trace': False,
         'verbose': False,
         'world': False,
     }
@@ -4502,7 +4508,7 @@ test_fs.py::TestFs::test_ext4
                 stdout=collect_output,
                 stderr='')
             args = argparse.Namespace(board='sandbox', build_dir=None,
-                                      test_spec=None, build=False, flattree_too=False)
+                                      test_spec=None, build=False, flattree_too=False, output_dir=None)
             tests = cmdpy.collect_tests(args)
 
         self.assertEqual(3, len(tests))
@@ -4523,7 +4529,7 @@ test_fs.py::TestFs::test_ext4
 
         with mock.patch('subprocess.Popen', mock_popen):
             args = argparse.Namespace(board='sandbox', build_dir=None,
-                                      lto=False, flattree_too=False)
+                                      lto=False, flattree_too=False, output_dir=None)
             env = {}
             tests = ['tests/test_ut.py::test_ut[ut_dm_foo]',
                      'tests/test_ut.py::test_ut[ut_dm_bar]']
@@ -4561,7 +4567,7 @@ test_fs.py::TestFs::test_ext4
         with mock.patch('subprocess.Popen', mock_popen):
             with mock.patch.object(settings, 'get', return_value='/tmp/b'):
                 args = argparse.Namespace(board='sandbox', build_dir=None,
-                                          lto=False, flattree_too=False)
+                                          lto=False, flattree_too=False, output_dir=None)
                 cmdpy.pollute_run([], 'test_target', args, {})
 
         self.assertIn('--build-dir', captured_cmd)
@@ -4574,7 +4580,7 @@ test_fs.py::TestFs::test_ext4
             mock_run.return_value = mock.Mock(
                 return_code=0, stdout='', stderr='')
             args = argparse.Namespace(board='sandbox', build_dir=None,
-                                      test_spec=None, build=False, flattree_too=False)
+                                      test_spec=None, build=False, flattree_too=False, output_dir=None)
             cmdpy.collect_tests(args)
 
         cmd = mock_run.call_args[0][0][0]
@@ -4587,7 +4593,7 @@ test_fs.py::TestFs::test_ext4
                 return_code=0, stdout='', stderr='')
             args = argparse.Namespace(board='sandbox', build_dir=None,
                                       test_spec=None, build=False,
-                                      flattree_too=True)
+                                      flattree_too=True, output_dir=None)
             cmdpy.collect_tests(args)
 
         cmd = mock_run.call_args[0][0][0]
@@ -4600,7 +4606,7 @@ test_fs.py::TestFs::test_ext4
                 return_code=4, stdout='',
                 stderr='error: unrecognized arguments: --no-full')
             args = argparse.Namespace(board='sandbox', build_dir=None,
-                                      test_spec=None, build=False, flattree_too=False)
+                                      test_spec=None, build=False, flattree_too=False, output_dir=None)
             with terminal.capture() as (_, err):
                 result = cmdpy.collect_tests(args)
 
@@ -4621,7 +4627,7 @@ test_fs.py::TestFs::test_ext4
 
         with mock.patch('subprocess.Popen', mock_popen):
             args = argparse.Namespace(board='sandbox', build_dir=None,
-                                      lto=False, flattree_too=False)
+                                      lto=False, flattree_too=False, output_dir=None)
             cmdpy.pollute_run([], 'test_target', args, {})
 
         self.assertIn('--no-full', captured_cmd)
@@ -4639,7 +4645,7 @@ test_fs.py::TestFs::test_ext4
 
         with mock.patch('subprocess.Popen', mock_popen):
             args = argparse.Namespace(board='sandbox', build_dir=None,
-                                      lto=False, flattree_too=True)
+                                      lto=False, flattree_too=True, output_dir=None)
             cmdpy.pollute_run([], 'test_target', args, {})
 
         self.assertNotIn('--no-full', captured_cmd)

@@ -114,6 +114,35 @@ def add_selftest_subparser(subparsers):
     return stest
 
 
+def add_build_opts(parser):
+    """Add common build options to a parser
+
+    Args:
+        parser: Argument parser to add options to
+    """
+    parser.add_argument(
+        '-a', '--adjust-cfg', action='append', metavar='CFG', dest='adjust_cfg',
+        help='Adjust Kconfig setting (use with -b; can use multiple times)')
+    parser.add_argument(
+        '-f', '--force-reconfig', action='store_true',
+        help='Force reconfiguration (use with -b)')
+    parser.add_argument(
+        '-F', '--fresh', action='store_true',
+        help='Delete build dir before building (use with -b)')
+    parser.add_argument(
+        '-j', '--jobs', type=int, metavar='JOBS',
+        help='Number of parallel jobs for build (use with -b)')
+    parser.add_argument(
+        '-L', '--lto', action='store_true',
+        help='Enable LTO when building (use with -b)')
+    parser.add_argument(
+        '-o', '--output-dir', metavar='DIR', dest='output_dir',
+        help='Override build directory (use with -b)')
+    parser.add_argument(
+        '-T', '--trace', action='store_true',
+        help='Enable function tracing (use with -b)')
+
+
 def add_pytest_subparser(subparsers):
     """Add the 'pytest' subparser"""
     pyt = subparsers.add_parser(
@@ -150,9 +179,6 @@ def add_pytest_subparser(subparsers):
         '-l', '--list', action='store_true', dest='list_boards',
         help='List available QEMU boards')
     pyt.add_argument(
-        '-L', '--lto', action='store_true',
-        help='Enable LTO when building (use with -b)')
-    pyt.add_argument(
         '-P', '--persist', action='store_true',
         help='Persist test artifacts (do not clean up after tests)')
     pyt.add_argument(
@@ -178,11 +204,9 @@ def add_pytest_subparser(subparsers):
         '--pollute', metavar='TEST',
         help='Find which test pollutes TEST (causes it to fail)')
     pyt.add_argument(
-        '-o', '--build-dir', metavar='DIR',
-        help='Override build directory (default: /tmp/b/BOARD)')
-    pyt.add_argument(
         '--gdbserver', metavar='CHANNEL', dest='gdbserver',
         help='Run sandbox under gdbserver (e.g., localhost:5555)')
+    add_build_opts(pyt)
     # extra_args is set by parse_args() when '--' is present
     pyt.set_defaults(extra_args=[])
     return pyt
@@ -282,6 +306,7 @@ def add_test_subparser(subparsers):
     test.add_argument(
         '-V', '--test-verbose', action='store_true', dest='test_verbose',
         help='Enable verbose test output')
+    add_build_opts(test)
     return test
 
 

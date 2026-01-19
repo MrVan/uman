@@ -373,14 +373,18 @@ hooks to PATH.
 
 - ``test_spec``: Test specification using pytest -k syntax (positional)
 - ``-b, --build``: Build U-Boot before running tests (uses um build)
+- ``-a, --adjust-cfg CFG``: Adjust Kconfig setting (use with -b)
 - ``-B, --board BOARD``: Board name to test (required, or set ``$b``)
 - ``-c, --show-cmd``: Show QEMU command line without running tests
 - ``-C, --c-test``: Run just the C test part (assumes setup done with -SP);
   use with -s to show live output
 - ``--flattree-too``: Run both live-tree and flat-tree tests (default: live-tree only)
 - ``--find PATTERN``: Find tests matching PATTERN and show full IDs
+- ``--force-reconfig``: Force reconfiguration (use with -b)
+- ``--fresh``: Delete build dir before building (use with -b)
 - ``-g``: Run sandbox under gdbserver at localhost:1234
 - ``-G, --gdb``: Launch gdb-multiarch and connect to an existing gdbserver
+- ``-j, --jobs JOBS``: Number of parallel jobs (use with -b)
 - ``-l, --list``: List available QEMU and sandbox boards
 - ``-L, --lto``: Enable LTO when building (use with -b)
 - ``-P, --persist``: Persist test artifacts (do not clean up after tests)
@@ -388,6 +392,7 @@ hooks to PATH.
 - ``-s, --show-output``: Show all test output in real-time (pytest -s)
 - ``-S, --setup-only``: Run only fixture setup (create test images) without tests
 - ``-t, --timing [SECS]``: Show test timing (default min: 0.1s)
+- ``--trace``: Enable function tracing (use with -b)
 - ``--no-timeout``: Disable test timeout
 - ``-x, --exitfirst``: Stop on first test failure
 - ``--pollute TEST``: Find which test pollutes TEST
@@ -525,13 +530,20 @@ without going through pytest. This is faster for quick iteration on C code.
 **Options**:
 
 - ``-b, --build``: Build before running tests
+- ``-a, --adjust-cfg CFG``: Adjust Kconfig setting (use with -b)
 - ``-B, --board BOARD``: Board to build/test (default: sandbox)
+- ``-f, --force-reconfig``: Force reconfiguration (use with -b)
+- ``-F, --fresh``: Delete build dir before building (use with -b)
 - ``--flattree-too``: Run both live-tree and flat-tree tests (default: live-tree only)
+- ``-j, --jobs JOBS``: Number of parallel jobs (use with -b)
 - ``-l, --list``: List available tests
+- ``-L, --lto``: Enable LTO when building (use with -b)
 - ``--legacy``: Use legacy result parsing (for old U-Boot)
 - ``-m, --manual``: Force manual tests to run (tests with _norun suffix)
+- ``-o, --output-dir DIR``: Override build directory (use with -b)
 - ``-r, --results``: Show per-test pass/fail status
 - ``-s, --suites``: List available test suites
+- ``-T, --trace``: Enable function tracing (use with -b)
 - ``-V, --test-verbose``: Enable verbose test output
 
 Config Subcommand

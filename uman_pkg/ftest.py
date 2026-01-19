@@ -2782,12 +2782,9 @@ class TestUmanControl(TestBase):  # pylint: disable=too-many-public-methods
         self.assertNotIn('-L', cap[0])
 
     def test_pytest_find_flag(self):
-        """Test -F/--find flag for pytest"""
-        args = cmdline.parse_args(['pytest', '-B', 'sandbox', '-F', 'video'])
+        """Test --find flag for pytest"""
+        args = cmdline.parse_args(['pytest', '-B', 'sandbox', '--find', 'video'])
         self.assertEqual('video', args.find)
-
-        args = cmdline.parse_args(['pytest', '-B', 'sandbox', '--find', 'dm'])
-        self.assertEqual('dm', args.find)
 
     def test_pytest_find_tests(self):
         """Test finding tests with -F option"""

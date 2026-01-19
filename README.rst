@@ -378,7 +378,7 @@ hooks to PATH.
 - ``-C, --c-test``: Run just the C test part (assumes setup done with -SP);
   use with -s to show live output
 - ``--flattree-too``: Run both live-tree and flat-tree tests (default: live-tree only)
-- ``-F, --find PATTERN``: Find tests matching PATTERN and show full IDs
+- ``--find PATTERN``: Find tests matching PATTERN and show full IDs
 - ``-g``: Run sandbox under gdbserver at localhost:1234
 - ``-G, --gdb``: Launch gdb-multiarch and connect to an existing gdbserver
 - ``-l, --list``: List available QEMU and sandbox boards

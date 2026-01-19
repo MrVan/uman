@@ -719,6 +719,28 @@ class TestBuildSubcommand(TestBase):  # pylint: disable=R0904
         self.assertFalse(result)
         self.assertIn('Error 1', err.getvalue())
 
+    def test_build_board_shows_progress(self):
+        """Test build_board() shows progress messages"""
+        progress_msgs = []
+        orig_progress = tout.progress
+
+        def mock_progress(msg):
+            progress_msgs.append(msg)
+            orig_progress(msg)
+
+        def mock_exec_cmd(cmd, dry_run=False, env=None, capture=True):
+            del cmd, dry_run, env, capture
+            return command.CommandResult(return_code=0)
+
+        with mock.patch.object(tout, 'progress', mock_progress):
+            with mock.patch.object(build, 'exec_cmd', mock_exec_cmd):
+                with mock.patch.object(build, 'setup_uboot_dir',
+                                       return_value=True):
+                    with terminal.capture():
+                        build.build_board('sandbox')
+
+        self.assertEqual(['Building sandbox'], progress_msgs)
+
 
 class TestConfigSubcommand(TestBase):
     """Test config subcommand"""

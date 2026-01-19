@@ -228,11 +228,11 @@ def build_board(board, dry_run=False, lto=False, adjust_cfg=None,
     build_dir = output_dir or get_dir(board)
 
     if fresh and os.path.exists(build_dir):
-        tout.info(f'Removing build directory: {build_dir}')
+        tout.progress(f'Removing build directory: {build_dir}')
         if not dry_run:
             shutil.rmtree(build_dir)
 
-    tout.info(f'Building {board}...')
+    tout.progress(f'Building {board}')
 
     bm_args = ['-I', '-w', '--boards', board, '-o', build_dir]
     if not lto:
@@ -254,6 +254,7 @@ def build_board(board, dry_run=False, lto=False, adjust_cfg=None,
         env['FTRACE'] = '1'
 
     result = buildman(*bm_args, dry_run=dry_run, env=env, capture=False)
+    tout.clear_progress()
 
     if result is None:  # dry-run
         return True
@@ -404,12 +405,8 @@ def run(args):
         return do_bisect(board, build_dir)
 
     if args.fresh and os.path.exists(build_dir):
-        tout.info(f'Removing output directory: {build_dir}')
         if not args.dry_run:
             shutil.rmtree(build_dir)
-
-    tout.info(f'Building U-Boot for board: {board}')
-    tout.info(f'Output directory: {build_dir}')
 
     bm_args = get_buildman_args(args, board, build_dir)
 

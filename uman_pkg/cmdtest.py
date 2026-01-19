@@ -615,6 +615,7 @@ def do_test(args):  # pylint: disable=R0912
                 adjust_cfg=args.adjust_cfg,
                 force_reconfig=args.force_reconfig, fresh=args.fresh,
                 jobs=args.jobs, trace=args.trace,
+                trace_early=not args.no_trace_early,
                 output_dir=args.output_dir):
             return 1
 

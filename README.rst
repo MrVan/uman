@@ -394,7 +394,9 @@ hooks to PATH.
 - ``-s, --show-output``: Show all test output in real-time (pytest -s)
 - ``-S, --setup-only``: Run only fixture setup (create test images) without tests
 - ``-t, --timing [SECS]``: Show test timing (default min: 0.1s)
-- ``--trace``: Enable function tracing (use with -b)
+- ``-T, --trace``: Enable function tracing; adds CONFIG_TRACE and
+  CONFIG_TRACE_EARLY (use with -b)
+- ``--no-trace-early``: Disable TRACE_EARLY when using -T (use with -b)
 - ``--no-timeout``: Disable test timeout
 - ``-x, --exitfirst``: Stop on first test failure
 - ``--pollute TEST``: Find which test pollutes TEST
@@ -545,7 +547,9 @@ without going through pytest. This is faster for quick iteration on C code.
 - ``-o, --output-dir DIR``: Override build directory (use with -b)
 - ``-r, --results``: Show per-test pass/fail status
 - ``-s, --suites``: List available test suites
-- ``-T, --trace``: Enable function tracing (use with -b)
+- ``-T, --trace``: Enable function tracing; adds CONFIG_TRACE and
+  CONFIG_TRACE_EARLY (use with -b)
+- ``--no-trace-early``: Disable TRACE_EARLY when using -T (use with -b)
 - ``-V, --test-verbose``: Enable verbose test output
 
 Config Subcommand
@@ -619,7 +623,9 @@ The ``build`` command (alias ``b``) builds U-Boot for a specified board::
 - ``-O, --objdump``: Write disassembly of u-boot and SPL ELFs
 - ``-s, --size``: Show size of u-boot and SPL ELFs
 - ``-t, --target TARGET``: Build specific target (e.g. u-boot.bin)
-- ``-T, --trace``: Enable function tracing (FTRACE=1)
+- ``-T, --trace``: Enable function tracing (FTRACE=1, adds CONFIG_TRACE and
+  CONFIG_TRACE_EARLY)
+- ``--no-trace-early``: Disable TRACE_EARLY when using -T
 
 Setup Subcommand
 ----------------

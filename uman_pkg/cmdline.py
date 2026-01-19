@@ -141,6 +141,9 @@ def add_build_opts(parser):
     parser.add_argument(
         '-T', '--trace', action='store_true',
         help='Enable function tracing (use with -b)')
+    parser.add_argument(
+        '--no-trace-early', action='store_true', dest='no_trace_early',
+        help='Disable TRACE_EARLY when using -T (use with -b)')
 
 
 def add_pytest_subparser(subparsers):
@@ -245,6 +248,8 @@ def add_build_subparser(subparsers):
                      help='Build specific target (e.g. u-boot.bin)')
     bld.add_argument('-T', '--trace', action='store_true',
                      help='Enable function tracing (FTRACE=1)')
+    bld.add_argument('--no-trace-early', action='store_true', dest='no_trace_early',
+                     help='Disable TRACE_EARLY when using -T')
     bld.add_argument('--bisect', action='store_true',
                      help='Bisect to find first failing commit')
     bld.add_argument('--gprof', action='store_true',

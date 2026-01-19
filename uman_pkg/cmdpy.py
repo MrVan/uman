@@ -621,6 +621,7 @@ def run_c_test(args):
                 adjust_cfg=args.adjust_cfg,
                 force_reconfig=args.force_reconfig, fresh=args.fresh,
                 jobs=args.jobs, trace=args.trace,
+                trace_early=not args.no_trace_early,
                 output_dir=args.output_dir):
             return 1
 
@@ -1138,6 +1139,7 @@ def do_pytest(args):  # pylint: disable=too-many-return-statements,too-many-bran
                 adjust_cfg=args.adjust_cfg,
                 force_reconfig=args.force_reconfig, fresh=args.fresh,
                 jobs=args.jobs, trace=args.trace,
+                trace_early=not args.no_trace_early,
                 output_dir=args.output_dir):
             return 1
         args.build = False  # Don't build again in pytest

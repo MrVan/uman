@@ -205,7 +205,7 @@ def get_buildman_args(args, board, build_dir):
 
 def build_board(board, dry_run=False, lto=False, adjust_cfg=None,
                 force_reconfig=False, fresh=False, jobs=None, trace=False,
-                output_dir=None):
+                trace_early=True, output_dir=None):
     """Build U-Boot for a board
 
     Args:
@@ -217,6 +217,7 @@ def build_board(board, dry_run=False, lto=False, adjust_cfg=None,
         fresh (bool): Delete build dir first
         jobs (int): Number of parallel jobs
         trace (bool): Enable function tracing
+        trace_early (bool): Enable TRACE_EARLY when trace is True (default True)
 
     Returns:
         bool: True if build succeeded, False otherwise
@@ -246,6 +247,9 @@ def build_board(board, dry_run=False, lto=False, adjust_cfg=None,
 
     env = None
     if trace:
+        bm_args.extend(['-a', 'TRACE'])
+        if trace_early:
+            bm_args.extend(['-a', 'TRACE_EARLY'])
         env = os.environ.copy()
         env['FTRACE'] = '1'
 
@@ -413,6 +417,9 @@ def run(args):
     if args.trace or args.gprof:
         env = os.environ.copy()
         if args.trace:
+            bm_args.extend(['-a', 'TRACE'])
+            if not args.no_trace_early:
+                bm_args.extend(['-a', 'TRACE_EARLY'])
             env['FTRACE'] = '1'
         if args.gprof:
             env['GPROF'] = '1'

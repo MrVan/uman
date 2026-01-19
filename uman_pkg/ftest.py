@@ -153,6 +153,7 @@ def make_args(**kwargs):
         'test_spec': [],
         'timing': None,
         'trace': False,
+        'no_trace_early': False,
         'verbose': False,
         'world': False,
     }
@@ -379,6 +380,50 @@ class TestBuildSubcommand(TestBase):  # pylint: disable=R0904
 
         self.assertNotIn('-L', cap[0])
 
+    def test_build_board_trace_adds_config(self):
+        """Test that build_board() adds -a TRACE and TRACE_EARLY by default"""
+        cap = []
+        captured_env = {}
+
+        def mock_exec_cmd(cmd, dry_run=False, env=None, capture=True):
+            del dry_run, capture  # unused
+            cap.append(cmd)
+            if env:
+                captured_env.update(env)
+            return command.CommandResult(return_code=0)
+
+        with mock.patch.object(build, 'setup_uboot_dir', return_value=True):
+            with mock.patch.object(build, 'exec_cmd', mock_exec_cmd):
+                with terminal.capture():
+                    build.build_board('sandbox', trace=True)
+
+        # Check both TRACE and TRACE_EARLY are added
+        cmd = cap[0]
+        trace_indices = [i for i, x in enumerate(cmd) if x == '-a']
+        self.assertEqual(2, len(trace_indices))
+        self.assertEqual('TRACE', cmd[trace_indices[0] + 1])
+        self.assertEqual('TRACE_EARLY', cmd[trace_indices[1] + 1])
+        self.assertEqual('1', captured_env.get('FTRACE'))
+
+    def test_build_board_trace_no_early(self):
+        """Test that build_board() skips TRACE_EARLY when trace_early=False"""
+        cap = []
+
+        def mock_exec_cmd(cmd, dry_run=False, env=None, capture=True):
+            del dry_run, env, capture  # unused
+            cap.append(cmd)
+            return command.CommandResult(return_code=0)
+
+        with mock.patch.object(build, 'setup_uboot_dir', return_value=True):
+            with mock.patch.object(build, 'exec_cmd', mock_exec_cmd):
+                with terminal.capture():
+                    build.build_board('sandbox', trace=True, trace_early=False)
+
+        cmd = cap[0]
+        trace_indices = [i for i, x in enumerate(cmd) if x == '-a']
+        self.assertEqual(1, len(trace_indices))
+        self.assertEqual('TRACE', cmd[trace_indices[0] + 1])
+
     def test_build_fresh_flag(self):
         """Test -F/--fresh flag"""
         args = cmdline.parse_args(['build', 'sandbox', '-F'])
@@ -473,15 +518,18 @@ class TestBuildSubcommand(TestBase):  # pylint: disable=R0904
         self.assertNotIn('-o', cmd)  # No output directory for in-tree
 
     def test_build_trace_flag(self):
-        """Test -T/--trace flag sets FTRACE environment variable"""
+        """Test -T/--trace flag sets FTRACE and adds -a TRACE and TRACE_EARLY"""
         args = cmdline.parse_args(['build', 'sandbox', '-T'])
         self.assertTrue(args.trace)
+        self.assertFalse(args.no_trace_early)
 
-        # Test that FTRACE is set in environment when trace flag is used
+        # Test that FTRACE is set and -a TRACE/TRACE_EARLY are added
         captured_env = {}
+        captured_cmd = []
 
-        def mock_exec_cmd(_cmd, dry_run=False, env=None, capture=True):
+        def mock_exec_cmd(cmd, dry_run=False, env=None, capture=True):
             del dry_run, capture  # unused
+            captured_cmd.extend(cmd)
             if env:
                 captured_env.update(env)
 
@@ -493,6 +541,34 @@ class TestBuildSubcommand(TestBase):  # pylint: disable=R0904
 
         self.assertIn('FTRACE', captured_env)
         self.assertEqual('1', captured_env.get('FTRACE'))
+        # Check both -a TRACE and -a TRACE_EARLY were added
+        trace_indices = [i for i, x in enumerate(captured_cmd) if x == '-a']
+        self.assertEqual(2, len(trace_indices))
+        self.assertEqual('TRACE', captured_cmd[trace_indices[0] + 1])
+        self.assertEqual('TRACE_EARLY', captured_cmd[trace_indices[1] + 1])
+
+    def test_build_trace_no_early_flag(self):
+        """Test --no-trace-early flag prevents TRACE_EARLY"""
+        args = cmdline.parse_args(['build', 'sandbox', '-T', '--no-trace-early'])
+        self.assertTrue(args.trace)
+        self.assertTrue(args.no_trace_early)
+
+        captured_cmd = []
+
+        def mock_exec_cmd(cmd, dry_run=False, env=None, capture=True):
+            del dry_run, env, capture  # unused
+            captured_cmd.extend(cmd)
+
+        with mock.patch.object(build, 'exec_cmd', mock_exec_cmd):
+            with mock.patch.object(build, 'setup_uboot_dir',
+                                   return_value='/tmp'):
+                with terminal.capture():
+                    build.run(args)
+
+        # Check only -a TRACE was added, not TRACE_EARLY
+        trace_indices = [i for i, x in enumerate(captured_cmd) if x == '-a']
+        self.assertEqual(1, len(trace_indices))
+        self.assertEqual('TRACE', captured_cmd[trace_indices[0] + 1])
 
     def test_build_gprof_flag(self):
         """Test --gprof flag sets GPROF environment variable"""

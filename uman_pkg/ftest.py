@@ -854,6 +854,8 @@ class TestGitSubcommand(TestBase):
         output = out.getvalue()
         self.assertIn("alias am='git commit --amend'", output)
         self.assertIn("alias st='git stash'", output)
+        # Check cg function passes $b
+        self.assertIn('cg() { b="$b" command cg "$@"; }', output)
 
     def test_git_symlink_invocation(self):
         """Test invoking via symlink automatically runs git subcommand"""
@@ -872,6 +874,14 @@ class TestGitSubcommand(TestBase):
         args = cmdline.parse_args(['git', 'rc'], prog_name='uman')
         self.assertEqual('git', args.cmd)
         self.assertEqual('rc', args.action)
+
+    def test_cg_symlink_invocation(self):
+        """Test invoking via 'cg' symlink runs config -g"""
+        args = cmdline.parse_args(['TRACE'], prog_name='/usr/local/bin/cg')
+        self.assertEqual('config', args.cmd)
+        self.assertEqual('TRACE', args.grep)
+        # Board not set via args, so will use $b env var
+        self.assertIsNone(args.board)
 
     def test_git_all_actions(self):
         """Test all git actions are valid"""

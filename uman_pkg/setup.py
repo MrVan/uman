@@ -58,7 +58,7 @@ def setup_aliases(args):
 
     uman_path = os.path.abspath(uman_path)
 
-    aliases = [a.short for a in cmdgit.GIT_ACTIONS]
+    aliases = [a.short for a in cmdgit.GIT_ACTIONS] + ['cg']
 
     if args.dry_run:
         tout.notice(f'Would create symlinks in {alias_dir} -> {uman_path}')

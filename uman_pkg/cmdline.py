@@ -410,12 +410,14 @@ def parse_args(argv=None, prog_name=None):
     if argv is None:
         argv = sys.argv[1:]
 
-    # Check if invoked via symlink matching a git action name
+    # Check if invoked via symlink matching a git action name or other shortcut
     if prog_name is None:
         prog_name = sys.argv[0] if sys.argv else ''
     invoked_as = os.path.basename(prog_name)
     if invoked_as in get_git_action_names():
         argv = ['git', invoked_as] + list(argv)
+    elif invoked_as == 'cg':
+        argv = ['config', '-g'] + list(argv)
 
     # Handle '--' separator for extra pytest arguments
     extra_args = []

@@ -1152,6 +1152,8 @@ def print_aliases():
     print('# Git aliases - add to ~/.bashrc: eval "$(um git -a)"')
     for name, cmd in sorted(SIMPLE_ALIASES.items()):
         print(f"alias {name}='{cmd}'")
+    # Shell function for cg to pass $b environment variable
+    print("cg() { b=\"$b\" command cg \"$@\"; }")
     return 0
 
 

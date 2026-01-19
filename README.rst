@@ -326,9 +326,11 @@ symlink, uman automatically runs the corresponding git subcommand::
     # Now these are equivalent:
     rf 3                    # same as: uman git rf 3
     rebase-diff             # same as: uman git rebase-diff
+    cg TRACE                # same as: uman config -g TRACE
 
 This works with both short names (``rf``, ``rd``, ``rc``) and full names
-(``rebase-first``, ``rebase-diff``, ``rebase-continue``).
+(``rebase-first``, ``rebase-diff``, ``rebase-continue``). The ``cg`` alias
+provides quick access to grepping U-Boot's .config file.
 
 Pytest Subcommand
 -----------------
@@ -555,6 +557,7 @@ modifying U-Boot configuration::
     # Grep .config for a pattern (case-insensitive regex)
     uman config -B sandbox -g VIDEO
     um cfg -g DM_TEST
+    cg TRACE              # Shortcut via symlink (run: uman setup aliases)
 
     # Resync defconfig from current .config
     uman config -B sandbox -s
@@ -653,8 +656,8 @@ various architectures::
 
 **Components**:
 
-- ``aliases``: Create symlinks for git action commands (rf, rc, rd, etc.) in a
-  directory. See `Symlink Invocation`_ above.
+- ``aliases``: Create symlinks for git action commands (rf, rc, rd, etc.) and
+  cg (config grep) in a directory. See `Symlink Invocation`_ above.
 - ``qemu``: Install QEMU packages for all architectures (arm, riscv, x86, ppc,
   xtensa). Uses ``apt-get`` with sudo.
 - ``opensbi``: Download pre-built OpenSBI firmware for RISC-V (both 32-bit and

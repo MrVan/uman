@@ -593,6 +593,23 @@ def run_tests(sandbox, specs, args, col):  # pylint: disable=R0914
         show_summary(res.passed, res.failed, res.skipped, elapsed)
         return result.return_code
 
+    # Check for crash (signal termination)
+    ret = result.return_code
+    if ret < 0:
+        # Negative means killed by signal
+        sig = -ret
+        sig_names = {6: 'SIGABRT', 11: 'SIGSEGV', 15: 'SIGTERM'}
+        sig_name = sig_names.get(sig, f'signal {sig}')
+        tout.error(f'Test crashed ({sig_name})')
+        return ret
+    if ret > 128:
+        # 128 + signal on some systems
+        sig = ret - 128
+        sig_names = {6: 'SIGABRT', 11: 'SIGSEGV', 15: 'SIGTERM'}
+        sig_name = sig_names.get(sig, f'signal {sig}')
+        tout.error(f'Test crashed ({sig_name})')
+        return ret
+
     tout.warning('No results detected (use -L for older U-Boot)')
     return 1
 

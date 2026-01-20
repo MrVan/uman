@@ -4126,6 +4126,42 @@ Tests run: 1, failures: 1
         # Error message should be shown in output
         self.assertIn('Missing required argument', out.getvalue())
 
+    def test_run_tests_detects_segfault(self):
+        """Test run_tests detects segfault (SIGSEGV)"""
+        col = terminal.Color()
+
+        def mock_run(*_args, **_kwargs):
+            return command.CommandResult(return_code=-11, stdout='Test: foo\n')
+
+        args = cmdline.parse_args(['test', 'dm'])
+        with mock.patch.object(command, 'run_one', mock_run):
+            with mock.patch.object(cmdtest, 'ensure_dm_init_files',
+                                   return_value=True):
+                with terminal.capture() as (out, err):
+                    result = cmdtest.run_tests('/path/to/sandbox',
+                                               [('dm', None)], args, col)
+        self.assertEqual(-11, result)
+        self.assertIn('crashed', err.getvalue())
+        self.assertIn('SIGSEGV', err.getvalue())
+
+    def test_run_tests_detects_crash_128_plus(self):
+        """Test run_tests detects crash with 128+signal return code"""
+        col = terminal.Color()
+
+        def mock_run(*_args, **_kwargs):
+            return command.CommandResult(return_code=139, stdout='Test: foo\n')
+
+        args = cmdline.parse_args(['test', 'dm'])
+        with mock.patch.object(command, 'run_one', mock_run):
+            with mock.patch.object(cmdtest, 'ensure_dm_init_files',
+                                   return_value=True):
+                with terminal.capture() as (out, err):
+                    result = cmdtest.run_tests('/path/to/sandbox',
+                                               [('dm', None)], args, col)
+        self.assertEqual(139, result)
+        self.assertIn('crashed', err.getvalue())
+        self.assertIn('SIGSEGV', err.getvalue())
+
     def test_do_test_runs_tests(self):
         """Test do_test runs tests when no list flags"""
         cap = []

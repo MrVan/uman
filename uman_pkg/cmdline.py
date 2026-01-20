@@ -343,6 +343,9 @@ def add_git_subparser(subparsers):
     git.add_argument(
         'arg', nargs='?',
         help='Commit count (for gr/rf), patch number (for rp/rn), or ref (for sd)')
+    git.add_argument(
+        'extra', nargs='*',
+        help='Additional arguments (e.g., file paths for rd)')
     return git
 
 

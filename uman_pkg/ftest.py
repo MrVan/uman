@@ -1841,6 +1841,40 @@ class TestGitSubcommand(TestBase):
         self.assertEqual(1, result)
         self.assertEqual('No commit found at position 5\n', err.getvalue())
 
+    def test_do_rd_with_file(self):
+        """Test do_rd with file path passes it to difftool"""
+        args = cmdline.parse_args(['git', 'rd', 'some/file.c'])
+        todo_content = b'pick abc1234 First commit\n'
+
+        with mock.patch.object(cmdgit, 'get_rebase_dir',
+                               return_value=self.test_dir):
+            todo_file = os.path.join(self.test_dir, 'git-rebase-todo')
+            tools.write_file(todo_file, todo_content)
+            with mock.patch('u_boot_pylib.command.run_one') as mock_run:
+                mock_run.return_value = mock.Mock(return_code=0)
+                result = cmdgit.do_rd(args)
+        self.assertEqual(0, result)
+        call_args = mock_run.call_args[0]
+        self.assertEqual(('git', 'difftool', 'abc1234', '--', 'some/file.c'),
+                         call_args)
+
+    def test_do_rd_with_count_and_file(self):
+        """Test do_rd N file passes both to difftool"""
+        args = cmdline.parse_args(['git', 'rd', '2', 'some/file.c'])
+        todo_content = b'pick abc1234 First commit\npick def5678 Second commit\n'
+
+        with mock.patch.object(cmdgit, 'get_rebase_dir',
+                               return_value=self.test_dir):
+            todo_file = os.path.join(self.test_dir, 'git-rebase-todo')
+            tools.write_file(todo_file, todo_content)
+            with mock.patch('u_boot_pylib.command.run_one') as mock_run:
+                mock_run.return_value = mock.Mock(return_code=0)
+                result = cmdgit.do_rd(args)
+        self.assertEqual(0, result)
+        call_args = mock_run.call_args[0]
+        self.assertEqual(('git', 'difftool', 'def5678', '--', 'some/file.c'),
+                         call_args)
+
     def test_do_rb(self):
         """Test do_rb rebases to upstream, stopping before first commit"""
         cap = []

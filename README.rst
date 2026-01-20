@@ -209,7 +209,7 @@ making it easier to step through commits during development.
 - ``ra`` / ``rebase-abort``: Abort the current rebase (stashes changes, shows recovery info)
 - ``rb`` / ``rebase-beginning``: Rebase from beginning - stops at first commit for editing
 - ``rc`` / ``rebase-continue``: Continue rebase (git rebase --continue)
-- ``rd`` / ``rebase-diff`` [N]: Show diff against the Nth next commit (default: 1)
+- ``rd`` / ``rebase-diff`` [N] [FILES...]: Show diff against the Nth next commit (default: 1)
 - ``re`` / ``rebase-edit``: Amend the current commit (opens editor)
 - ``rf`` / ``rebase-first`` [N]: Rebase last N commits, stopping at first for editing
 - ``rn`` / ``rebase-next`` [N]: Continue rebase to next commit (see below for details)

@@ -552,7 +552,9 @@ def do_rd(args):
 
     Args:
         args (argparse.Namespace): Arguments from cmdline
-            args.arg: Which commit to diff against (default 1 = next commit)
+            args.arg: Which commit to diff against (default 1 = next commit),
+                or a file path if not a digit
+            args.extra: Additional arguments (e.g., file paths)
 
     Returns:
         int: Exit code from git diff
@@ -570,8 +572,16 @@ def do_rd(args):
     with open(todo_file, 'r', encoding='utf-8') as inf:
         lines = inf.readlines()
 
+    # Parse args: if first arg is a digit, it's the commit number
+    extra = list(args.extra) if args.extra else []
+    if args.arg and args.arg.isdigit():
+        target = int(args.arg)
+    else:
+        target = 1
+        if args.arg:
+            extra.insert(0, args.arg)
+
     # Find the nth non-comment, non-empty line
-    target = int(args.arg) if args.arg else 1
     count = 0
     commit_hash = None
     for line in lines:
@@ -590,8 +600,11 @@ def do_rd(args):
         return 1
 
     # Show diff against that commit using difftool
-    result = command.run_one('git', 'difftool', commit_hash, capture=False,
-                             raise_on_error=False)
+    cmd = ['git', 'difftool', commit_hash]
+    if extra:
+        cmd.append('--')
+        cmd.extend(extra)
+    result = command.run_one(*cmd, capture=False, raise_on_error=False)
     return result.return_code
 
 

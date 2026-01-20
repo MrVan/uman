@@ -420,6 +420,8 @@ def run(args):
             env['FTRACE'] = '1'
         if args.gprof:
             env['GPROF'] = '1'
+    if args.debug:
+        bm_args.extend(['-a', 'CC_OPTIMIZE_FOR_DEBUG'])
 
     result = buildman(*bm_args, env=env, dry_run=args.dry_run, capture=False)
 

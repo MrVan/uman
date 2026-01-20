@@ -592,6 +592,28 @@ class TestBuildSubcommand(TestBase):  # pylint: disable=R0904
         self.assertIn('GPROF', captured_env)
         self.assertEqual('1', captured_env.get('GPROF'))
 
+    def test_build_debug_flag(self):
+        """Test -g/--debug flag adds -a CC_OPTIMIZE_FOR_DEBUG"""
+        args = cmdline.parse_args(['build', 'sandbox', '-g'])
+        self.assertTrue(args.debug)
+
+        captured_cmd = []
+
+        def mock_exec_cmd(cmd, dry_run=False, env=None, capture=True):
+            del dry_run, env, capture  # unused
+            captured_cmd.extend(cmd)
+
+        with mock.patch.object(build, 'exec_cmd', mock_exec_cmd):
+            with mock.patch.object(build, 'setup_uboot_dir',
+                                   return_value='/tmp'):
+                with terminal.capture():
+                    build.run(args)
+
+        # Check -a CC_OPTIMIZE_FOR_DEBUG was added
+        self.assertIn('-a', captured_cmd)
+        idx = captured_cmd.index('-a')
+        self.assertEqual('CC_OPTIMIZE_FOR_DEBUG', captured_cmd[idx + 1])
+
     def test_build_output_dir_flag(self):
         """Test -o/--output-dir flag overrides build directory"""
         args = cmdline.parse_args(['build', 'sandbox', '-o', '/custom/out'])

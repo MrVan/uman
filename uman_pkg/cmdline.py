@@ -233,6 +233,8 @@ def add_build_subparser(subparsers):
                      help='Force reconfiguration')
     bld.add_argument('-F', '--fresh', action='store_true',
                      help='Delete build dir first')
+    bld.add_argument('-g', '--debug', action='store_true',
+                     help='Enable debug build (CC_OPTIMIZE_FOR_DEBUG)')
     bld.add_argument('-I', '--in-tree', action='store_true',
                      help='Build in source tree, not separate directory')
     bld.add_argument('-j', '--jobs', type=int, metavar='JOBS',

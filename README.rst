@@ -613,6 +613,7 @@ The ``build`` command (alias ``b``) builds U-Boot for a specified board::
 - ``-a, --make-arg ARG``: Pass argument to make (can use multiple times)
 - ``-f, --force-reconfig``: Force reconfiguration
 - ``-F, --fresh``: Delete build directory first
+- ``-g, --debug``: Enable debug-friendly optimizations (adds CONFIG_CC_OPTIMIZE_FOR_DEBUG)
 - ``--bisect``: Bisect to find first commit that breaks the build (assumes
   HEAD fails and upstream builds)
 - ``--gprof``: Enable gprof profiling (sets GPROF=1)

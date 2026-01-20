@@ -325,6 +325,9 @@ def do_rn(args):
     # If there are staged changes, we just resolved a conflict - insert break
     # so we stop at this commit after it's applied
     if has_staged_changes():
+        # Capture position before continuing, since git will advance the counter
+        pos = get_rebase_position()
+        pos_str = f' {pos}:' if pos else ':'
         with open(todo_file, 'r', encoding='utf-8') as inf:
             lines = inf.readlines()
         # Insert break at the beginning of todo
@@ -332,7 +335,12 @@ def do_rn(args):
         with open(todo_file, 'w', encoding='utf-8') as outf:
             outf.writelines(lines)
         result = git('rebase', '--continue')
-        show_rebase_status(result.stdout + result.stderr, result.return_code)
+        if result.return_code == 0:
+            commit = git_output('rev-parse', '--short', 'HEAD')
+            subject = git_output('log', '-1', '--format=%s')
+            tout.notice(f'Rebasing{pos_str} review  {commit}... {subject}')
+        else:
+            show_rebase_status(result.stdout + result.stderr, result.return_code)
         return result
 
     with open(todo_file, 'r', encoding='utf-8') as inf:

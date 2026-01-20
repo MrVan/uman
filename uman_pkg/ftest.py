@@ -2203,8 +2203,9 @@ class TestGitRebase(TestBase, GitRepoMixin):
         self.assertEqual(0, result.return_code)
         # After conflict resolution, git outputs the commit info to stdout
         self.assertIn('Commit 2', result.stdout)
-        # Break doesn't produce "Stopped at" message, no output expected
-        self.assertFalse(out.getvalue())
+        # After conflict resolution, rn shows position and commit for review
+        self.assertRegex(out.getvalue(),
+                         r'Rebasing \d+/\d+: review  [0-9a-f]+\.\.\. Commit 2\n')
         self.assertFalse(err.getvalue())
         self.assertTrue(self.is_rebasing())
         self.assertEqual('Commit 2', self.get_head_subject())
@@ -2231,8 +2232,9 @@ class TestGitRebase(TestBase, GitRepoMixin):
         self.assertEqual(0, result.return_code)
         # After conflict resolution, git outputs the commit info to stdout
         self.assertIn('Commit 3', result.stdout)
-        # Break doesn't produce "Stopped at" message, no output expected
-        self.assertFalse(out.getvalue())
+        # After conflict resolution, rn shows position and commit for review
+        self.assertRegex(out.getvalue(),
+                         r'Rebasing \d+/\d+: review  [0-9a-f]+\.\.\. Commit 3\n')
         self.assertFalse(err.getvalue())
         self.assertTrue(self.is_rebasing())
         self.assertEqual('Commit 3', self.get_head_subject())

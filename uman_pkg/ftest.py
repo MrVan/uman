@@ -1868,7 +1868,9 @@ class TestGitSubcommand(TestBase):
         with mock.patch('uman_pkg.cmdgit.git', mock_git):
             with mock.patch.object(cmdgit, 'get_upstream',
                                    return_value='origin/main'):
-                result = cmdgit.do_rf(args)
+                with mock.patch.object(cmdgit, 'has_unstaged_changes',
+                                       return_value=False):
+                    result = cmdgit.do_rf(args)
         self.assertEqual(0, result.return_code)
         self.assertEqual(('rebase', '-i', 'origin/main'), cap[0])
         self.assertIn("1s/^pick/edit/", cap_env[0]['GIT_SEQUENCE_EDITOR'])
@@ -1884,9 +1886,21 @@ class TestGitSubcommand(TestBase):
 
         args = cmdline.parse_args(['git', 'rf', '5'])
         with mock.patch('uman_pkg.cmdgit.git', mock_git):
-            result = cmdgit.do_rf(args)
+            with mock.patch.object(cmdgit, 'has_unstaged_changes',
+                                   return_value=False):
+                result = cmdgit.do_rf(args)
         self.assertEqual(0, result.return_code)
         self.assertEqual(('rebase', '-i', 'HEAD~5'), cap[0])
+
+    def test_do_rf_unstaged_changes(self):
+        """Test do_rf fails with unstaged changes"""
+        args = cmdline.parse_args(['git', 'rf'])
+        with mock.patch.object(cmdgit, 'has_unstaged_changes',
+                               return_value=True):
+            with terminal.capture() as (_, err):
+                result = cmdgit.do_rf(args)
+        self.assertEqual(1, result)
+        self.assertIn('Unstaged changes', err.getvalue())
 
     def test_do_rp_requires_arg(self):
         """Test do_rp requires patch number"""

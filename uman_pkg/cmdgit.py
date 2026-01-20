@@ -196,6 +196,10 @@ def do_rf(args):
     Returns:
         CommandResult or int: Result with return_code, stdout, stderr; or 0
     """
+    if has_unstaged_changes():
+        tout.error('Unstaged changes - commit or stash first')
+        return 1
+
     if args.arg:
         target = f'HEAD~{args.arg}'
     else:

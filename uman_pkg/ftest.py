@@ -4127,22 +4127,29 @@ Tests run: 1, failures: 1
         self.assertIn('Missing required argument', out.getvalue())
 
     def test_run_tests_detects_segfault(self):
-        """Test run_tests detects segfault (SIGSEGV)"""
+        """Test run_tests detects segfault (SIGSEGV) and resets terminal"""
         col = terminal.Color()
+        system_calls = []
 
         def mock_run(*_args, **_kwargs):
             return command.CommandResult(return_code=-11, stdout='Test: foo\n')
+
+        def mock_system(cmd):
+            system_calls.append(cmd)
+            return 0
 
         args = cmdline.parse_args(['test', 'dm'])
         with mock.patch.object(command, 'run_one', mock_run):
             with mock.patch.object(cmdtest, 'ensure_dm_init_files',
                                    return_value=True):
-                with terminal.capture() as (out, err):
-                    result = cmdtest.run_tests('/path/to/sandbox',
-                                               [('dm', None)], args, col)
+                with mock.patch('os.system', mock_system):
+                    with terminal.capture() as (out, err):
+                        result = cmdtest.run_tests('/path/to/sandbox',
+                                                   [('dm', None)], args, col)
         self.assertEqual(-11, result)
         self.assertIn('crashed', err.getvalue())
         self.assertIn('SIGSEGV', err.getvalue())
+        self.assertEqual(['tset'], system_calls)
 
     def test_run_tests_detects_crash_128_plus(self):
         """Test run_tests detects crash with 128+signal return code"""

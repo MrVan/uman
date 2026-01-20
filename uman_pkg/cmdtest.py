@@ -595,18 +595,15 @@ def run_tests(sandbox, specs, args, col):  # pylint: disable=R0914
 
     # Check for crash (signal termination)
     ret = result.return_code
+    sig = None
     if ret < 0:
-        # Negative means killed by signal
         sig = -ret
-        sig_names = {6: 'SIGABRT', 11: 'SIGSEGV', 15: 'SIGTERM'}
-        sig_name = sig_names.get(sig, f'signal {sig}')
-        tout.error(f'Test crashed ({sig_name})')
-        return ret
-    if ret > 128:
-        # 128 + signal on some systems
+    elif ret > 128:
         sig = ret - 128
+    if sig:
         sig_names = {6: 'SIGABRT', 11: 'SIGSEGV', 15: 'SIGTERM'}
         sig_name = sig_names.get(sig, f'signal {sig}')
+        os.system('tset')
         tout.error(f'Test crashed ({sig_name})')
         return ret
 

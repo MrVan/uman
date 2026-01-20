@@ -187,7 +187,7 @@ making it easier to step through commits during development.
 - ``cms`` / ``commit-signoff``: Commit with signoff (git commit --signoff)
 - ``co`` / ``checkout``: Checkout (switch branches or restore files)
 - ``db`` / ``diff-branch`` [BRANCH]: Diff current commit files against upstream (or BRANCH)
-- ``dh`` / ``diff-head`` [N]: Show diff using difftool (git difftool HEAD~ or HEAD~N)
+- ``dh`` / ``diff-head`` [N] [FILES...]: Show diff using difftool (git difftool HEAD~ or HEAD~N)
 - ``eg`` / ``errno-grep`` PATTERN: Search include/linux/errno.h for error codes
 - ``et`` / ``edit-todo``: Edit the rebase todo list
 - ``fci`` / ``find-ci`` [N]: Check if commits are in ci/master (default 20)

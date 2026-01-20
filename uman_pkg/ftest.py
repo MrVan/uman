@@ -1643,6 +1643,28 @@ class TestGitSubcommand(TestBase):
         call_args = mock_run.call_args[0]
         self.assertEqual(('git', 'difftool', 'HEAD~3'), call_args)
 
+    def test_do_dh_with_file(self):
+        """Test do_dh with file path passes it to difftool"""
+        args = cmdline.parse_args(['git', 'dh', 'some/file.c'])
+        with mock.patch('u_boot_pylib.command.run_one') as mock_run:
+            mock_run.return_value = mock.Mock(return_code=0)
+            result = cmdgit.do_dh(args)
+        self.assertEqual(0, result)
+        call_args = mock_run.call_args[0]
+        self.assertEqual(('git', 'difftool', 'HEAD~', '--', 'some/file.c'),
+                         call_args)
+
+    def test_do_dh_with_count_and_file(self):
+        """Test do_dh N file passes both to difftool"""
+        args = cmdline.parse_args(['git', 'dh', '2', 'some/file.c'])
+        with mock.patch('u_boot_pylib.command.run_one') as mock_run:
+            mock_run.return_value = mock.Mock(return_code=0)
+            result = cmdgit.do_dh(args)
+        self.assertEqual(0, result)
+        call_args = mock_run.call_args[0]
+        self.assertEqual(('git', 'difftool', 'HEAD~2', '--', 'some/file.c'),
+                         call_args)
+
     def test_do_sl(self):
         """Test do_sl runs git log --stat upstream.."""
         args = cmdline.parse_args(['git', 'sl'])

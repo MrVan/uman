@@ -1032,17 +1032,25 @@ def do_dh(args):
 
     Args:
         args (argparse.Namespace): Arguments from cmdline
-            args.arg: Number of commits back (default 1)
+            args.arg: Number of commits back (default 1), or file path
+            args.extra: Additional arguments (e.g., file paths)
 
     Returns:
         int: Exit code from git difftool
     """
+    extra = list(args.extra) if args.extra else []
     if args.arg and args.arg.isdigit():
         target = f'HEAD~{args.arg}'
     else:
         target = 'HEAD~'
-    result = command.run_one('git', 'difftool', target, capture=False,
-                             raise_on_error=False)
+        if args.arg:
+            extra.insert(0, args.arg)
+
+    cmd = ['git', 'difftool', target]
+    if extra:
+        cmd.append('--')
+        cmd.extend(extra)
+    result = command.run_one(*cmd, capture=False, raise_on_error=False)
     return result.return_code
 
 

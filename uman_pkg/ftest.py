@@ -1633,6 +1633,16 @@ class TestGitSubcommand(TestBase):
         call_args = mock_run.call_args[0]
         self.assertEqual(('git', 'difftool', 'HEAD~'), call_args)
 
+    def test_do_dh_with_count(self):
+        """Test do_dh N runs git difftool HEAD~N"""
+        args = cmdline.parse_args(['git', 'dh', '3'])
+        with mock.patch('u_boot_pylib.command.run_one') as mock_run:
+            mock_run.return_value = mock.Mock(return_code=0)
+            result = cmdgit.do_dh(args)
+        self.assertEqual(0, result)
+        call_args = mock_run.call_args[0]
+        self.assertEqual(('git', 'difftool', 'HEAD~3'), call_args)
+
     def test_do_sl(self):
         """Test do_sl runs git log --stat upstream.."""
         args = cmdline.parse_args(['git', 'sl'])

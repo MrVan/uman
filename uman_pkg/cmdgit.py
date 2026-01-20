@@ -1014,13 +1014,21 @@ def do_g(_args):
     return result.return_code
 
 
-def do_dh(_args):
+def do_dh(args):
     """Show diff of the top commit using difftool
 
+    Args:
+        args (argparse.Namespace): Arguments from cmdline
+            args.arg: Number of commits back (default 1)
+
     Returns:
-        int: Exit code from git difftool HEAD~
+        int: Exit code from git difftool
     """
-    result = command.run_one('git', 'difftool', 'HEAD~', capture=False,
+    if args.arg and args.arg.isdigit():
+        target = f'HEAD~{args.arg}'
+    else:
+        target = 'HEAD~'
+    result = command.run_one('git', 'difftool', target, capture=False,
                              raise_on_error=False)
     return result.return_code
 

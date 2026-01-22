@@ -326,14 +326,38 @@ def do_rn(args):
         tout.error('Rebase todo file not found')
         return 1
 
-    # If there are staged changes, we just resolved a conflict - insert break
-    # so we stop at this commit after it's applied
+    # If there are staged changes, insert break and continue
+    # Amend changes if at edit point or break point (not conflict resolution)
     if has_staged_changes():
         # Capture position before continuing, since git will advance the counter
         pos = get_rebase_position()
         pos_str = f' {pos}:' if pos else ':'
+
         with open(todo_file, 'r', encoding='utf-8') as inf:
             lines = inf.readlines()
+
+        # Check if we're at an edit/break point vs conflict resolution
+        # - amend file exists: at edit point
+        # - last done line is 'break': at break point
+        # - otherwise: conflict resolution (don't amend)
+        amend_file = os.path.join(rebase_dir, 'amend')
+        done_file = os.path.join(rebase_dir, 'done')
+
+        at_edit_or_break = os.path.exists(amend_file)
+        if not at_edit_or_break and os.path.exists(done_file):
+            with open(done_file, 'r', encoding='utf-8') as inf:
+                done_lines = [ln.strip() for ln in inf if ln.strip()]
+            if done_lines and done_lines[-1].startswith('break'):
+                at_edit_or_break = True
+
+        if at_edit_or_break:
+            # At edit/break point - amend the staged changes to HEAD first
+            result = command.run_one('git', 'commit', '--amend', '--no-edit',
+                                     capture=True, raise_on_error=False)
+            if result.return_code != 0:
+                tout.error('Failed to amend changes')
+                return result
+
         # Insert break at the beginning of todo
         lines.insert(0, 'break\n')
         with open(todo_file, 'w', encoding='utf-8') as outf:
@@ -344,7 +368,8 @@ def do_rn(args):
             subject = git_output('log', '-1', '--format=%s')
             tout.notice(f'Rebasing{pos_str} review  {commit}... {subject}')
         else:
-            show_rebase_status(result.stdout + result.stderr, result.return_code)
+            show_rebase_status(result.stdout + result.stderr,
+                               result.return_code)
         return result
 
     with open(todo_file, 'r', encoding='utf-8') as inf:

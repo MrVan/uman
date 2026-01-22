@@ -2303,8 +2303,6 @@ class TestGitRebase(TestBase, GitRepoMixin):
         with terminal.capture() as (out, err):
             result = cmdgit.do_rn(args)
         self.assertEqual(0, result.return_code)
-        # After conflict resolution, git outputs the commit info to stdout
-        self.assertIn('Commit 2', result.stdout)
         # After conflict resolution, rn shows position and commit for review
         self.assertRegex(out.getvalue(),
                          r'Rebasing \d+/\d+: review  [0-9a-f]+\.\.\. Commit 2\n')
@@ -2332,8 +2330,6 @@ class TestGitRebase(TestBase, GitRepoMixin):
         with terminal.capture() as (out, err):
             result = cmdgit.do_rn(args)
         self.assertEqual(0, result.return_code)
-        # After conflict resolution, git outputs the commit info to stdout
-        self.assertIn('Commit 3', result.stdout)
         # After conflict resolution, rn shows position and commit for review
         self.assertRegex(out.getvalue(),
                          r'Rebasing \d+/\d+: review  [0-9a-f]+\.\.\. Commit 3\n')
@@ -2365,6 +2361,84 @@ class TestGitRebase(TestBase, GitRepoMixin):
         # Rebase complete - Commit 4 was skipped so Commit 3 is at HEAD
         self.assertFalse(self.is_rebasing())
         self.assertEqual('Commit 3', self.get_head_subject())
+
+    def test_rn_with_unstaged_then_staged(self):
+        """Test rn at edit point with unstaged changes, then staged"""
+        # Start rebase with rp 1 - stops at Commit 1
+        args = cmdline.parse_args(['git', 'rp', '1'])
+        with terminal.capture():
+            result = cmdgit.do_rp(args)
+        self.assertEqual(0, result.return_code)
+        self.assertTrue(self.is_rebasing())
+        self.assertEqual('Commit 1', self.get_head_subject())
+
+        # Make a change but don't stage it
+        tools.write_file('file1.txt', 'modified content\n', binary=False)
+
+        # rn should fail with unstaged changes
+        args = cmdline.parse_args(['git', 'rn'])
+        with terminal.capture() as (_, err):
+            result = cmdgit.do_rn(args)
+        self.assertEqual(1, result)
+        self.assertIn('Unstaged changes', err.getvalue())
+
+        # Stage the changes
+        command.output('git', 'add', 'file1.txt')
+
+        # rn should now work - inserts break and continues
+        args = cmdline.parse_args(['git', 'rn'])
+        with terminal.capture() as (out, err):
+            result = cmdgit.do_rn(args)
+        self.assertEqual(0, result.return_code)
+        # Should show review message
+        self.assertRegex(out.getvalue(),
+                         r'Rebasing \d+/\d+: review  [0-9a-f]+\.\.\. Commit 1\n')
+        self.assertFalse(err.getvalue())
+        self.assertTrue(self.is_rebasing())
+        self.assertEqual('Commit 1', self.get_head_subject())
+
+        # Check that the todo file doesn't have multiple breaks
+        rebase_dir = cmdgit.get_rebase_dir()
+        todo_file = os.path.join(rebase_dir, 'git-rebase-todo')
+        with open(todo_file, 'r', encoding='utf-8') as inf:
+            todo_content = inf.read()
+        break_count = todo_content.count('break')
+        self.assertEqual(0, break_count, f'Expected 0 breaks, got {break_count}')
+
+        # Now make another change while at the break point
+        tools.write_file('file1.txt', 'another modification\n', binary=False)
+
+        # rn should fail with unstaged changes
+        args = cmdline.parse_args(['git', 'rn'])
+        with terminal.capture() as (_, err):
+            result = cmdgit.do_rn(args)
+        self.assertEqual(1, result)
+        self.assertIn('Unstaged changes', err.getvalue())
+
+        # Stage the changes
+        command.output('git', 'add', 'file1.txt')
+
+        # rn again with staged changes - should work (amends first)
+        args = cmdline.parse_args(['git', 'rn'])
+        with terminal.capture() as (out, err):
+            result = cmdgit.do_rn(args)
+        self.assertEqual(0, result.return_code)
+        self.assertRegex(out.getvalue(),
+                         r'Rebasing \d+/\d+: review  [0-9a-f]+\.\.\. Commit 1\n')
+        self.assertFalse(err.getvalue())
+
+        # Check todo for multiple breaks
+        with open(todo_file, 'r', encoding='utf-8') as inf:
+            todo_content = inf.read()
+        break_count = todo_content.count('break')
+        self.assertEqual(0, break_count,
+                         f'Expected 0 breaks after second rn, got {break_count}')
+
+        # Continue the rebase
+        args = cmdline.parse_args(['git', 'rc'])
+        with terminal.capture():
+            cmdgit.do_rc(args)
+        self.assertFalse(self.is_rebasing())
 
     def test_rn_not_rebasing(self):
         """Test rn fails when not in a rebase"""

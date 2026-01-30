@@ -14,6 +14,7 @@ import re
 
 # pylint: disable=import-error
 from u_boot_pylib import command
+from u_boot_pylib import tools
 from u_boot_pylib import tout
 
 from uman_pkg.util import git, git_output, git_output_quiet
@@ -102,12 +103,38 @@ def get_upstream():
     except command.CommandExc:
         pass
 
-    # Maybe we are in a rebase - try @{-1}
+    # Maybe we are in a rebase - get original branch's upstream
+    rebase_dir = get_rebase_dir()
+    if rebase_dir:
+        head_name_file = os.path.join(rebase_dir, 'head-name')
+        if os.path.exists(head_name_file):
+            head_name = tools.read_file(head_name_file, binary=False).strip()
+            # head-name is like "refs/heads/feature" - get just the branch name
+            if head_name.startswith('refs/heads/'):
+                branch = head_name[len('refs/heads/'):]
+                try:
+                    upstream = git_output_quiet(
+                        'rev-parse', '--abbrev-ref', f'{branch}@{{upstream}}')
+                    if upstream:
+                        return upstream
+                except command.CommandExc:
+                    pass
+
+    # Fallback: try @{-1} (previous branch) and get ITS upstream
     try:
-        upstream = git_output_quiet('rev-parse', '--abbrev-ref', '@{-1}')
-        if upstream:
-            tout.warning(f'Using upstream branch {upstream}')
-            return upstream
+        prev_branch = git_output_quiet('rev-parse', '--abbrev-ref', '@{-1}')
+        if prev_branch:
+            tout.warning(f'Using previous branch {prev_branch}')
+            # Get the upstream of the previous branch
+            try:
+                upstream = git_output_quiet(
+                    'rev-parse', '--abbrev-ref', f'{prev_branch}@{{upstream}}')
+                if upstream:
+                    return upstream
+            except command.CommandExc:
+                pass
+            # If no upstream configured, use the branch itself
+            return prev_branch
     except command.CommandExc:
         pass
 

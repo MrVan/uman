@@ -48,7 +48,7 @@ def get_all():
         SETTINGS['config'] = configparser.ConfigParser()
         fname = os.path.expanduser('~/.uman')
         if not os.path.exists(fname):
-            tout.notice(f'Creating config file: {fname}')
+            tout.warning(f'Creating config file: {fname}')
             with open(fname, 'w', encoding='utf-8') as fil:
                 fil.write(DEFAULT_CONFIG)
         SETTINGS['config'].read(fname)

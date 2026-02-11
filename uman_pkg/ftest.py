@@ -2851,48 +2851,48 @@ class TestUmanCI(TestBase):
         """Test git_push_branch destination parsing"""
         cap = []
 
-        def mock_git(pipe_list, **_kwargs):
-            cap.append(pipe_list[0])
+        def mock_exec(cmd, dry_run=False, env=None, capture=True):
+            del dry_run, env, capture
+            cap.append(list(cmd))
             return command.CommandResult(stdout='', return_code=0)
 
-        command.TEST_RESULT = mock_git
+        with mock.patch.object(control, 'exec_cmd', mock_exec):
+            # Test default destination (None means use current branch name)
+            args = make_args(dry_run=False, dest=None)
+            with terminal.capture():
+                control.git_push_branch('test-branch', args)
+            self.assertEqual(['git', 'push', 'ci', 'test-branch'], cap[-1])
 
-        # Test default destination (None means use current branch name)
-        args = make_args(dry_run=False, dest=None)
-        with terminal.capture():
-            control.git_push_branch('test-branch', args)
-        self.assertEqual(['git', 'push', 'ci', 'test-branch'], list(cap[-1]))
+            # Test custom destination branch
+            args = make_args(dry_run=False, dest='my-feature')
+            with terminal.capture():
+                control.git_push_branch('test-branch', args)
+            self.assertEqual(['git', 'push', 'ci', 'test-branch:my-feature'],
+                             cap[-1])
 
-        # Test custom destination branch
-        args = make_args(dry_run=False, dest='my-feature')
-        with terminal.capture():
-            control.git_push_branch('test-branch', args)
-        self.assertEqual(['git', 'push', 'ci', 'test-branch:my-feature'],
-                         list(cap[-1]))
+            # Test with CI variables
+            args = make_args(dry_run=False, dest='feature-test')
+            ci_vars = {'PYTEST': '1', 'SUITES': '0'}
+            with terminal.capture():
+                control.git_push_branch('test-branch', args, ci_vars=ci_vars)
+            self.assertEqual(
+                ['git', 'push', '-o', 'ci.variable=PYTEST=1', '-o',
+                 'ci.variable=SUITES=0', 'ci', 'test-branch:feature-test'],
+                cap[-1])
 
-        # Test with CI variables
-        args = make_args(dry_run=False, dest='feature-test')
-        ci_vars = {'PYTEST': '1', 'SUITES': '0'}
-        with terminal.capture():
-            control.git_push_branch('test-branch', args, ci_vars=ci_vars)
-        self.assertEqual(
-            ['git', 'push', '-o', 'ci.variable=PYTEST=1', '-o',
-             'ci.variable=SUITES=0', 'ci', 'test-branch:feature-test'],
-            list(cap[-1]))
+            # Test with force flag
+            args = make_args(dry_run=False, dest='force-test', force=True)
+            with terminal.capture():
+                control.git_push_branch('test-branch', args)
+            self.assertEqual(['git', 'push', '--force', 'ci',
+                              'test-branch:force-test'], cap[-1])
 
-        # Test with force flag
-        args = make_args(dry_run=False, dest='force-test', force=True)
-        with terminal.capture():
-            control.git_push_branch('test-branch', args)
-        self.assertEqual(['git', 'push', '--force', 'ci',
-                          'test-branch:force-test'], list(cap[-1]))
-
-        # Test with upstream flag
-        args = make_args(dry_run=False, dest='upstream-test')
-        with terminal.capture():
-            control.git_push_branch('test-branch', args, upstream=True)
-        self.assertEqual(['git', 'push', '-u', 'ci',
-                          'test-branch:upstream-test'], list(cap[-1]))
+            # Test with upstream flag
+            args = make_args(dry_run=False, dest='upstream-test')
+            with terminal.capture():
+                control.git_push_branch('test-branch', args, upstream=True)
+            self.assertEqual(['git', 'push', '-u', 'ci',
+                              'test-branch:upstream-test'], cap[-1])
 
 
 class TestUmanControl(TestBase):  # pylint: disable=too-many-public-methods

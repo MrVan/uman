@@ -29,6 +29,21 @@ SETUP_COMPONENTS = {
     'xtensa': 'Xtensa dc233c toolchain',
 }
 
+UM_FUNC = 'um() { b="$b" USRC="$USRC" command um "$@"; }'
+
+
+def show_shell_hint():
+    """Show the shell function hint for setting up the 'um' wrapper"""
+    tout.notice('')
+    tout.notice('Add this to ~/.bashrc to pass shell variables to uman:')
+    tout.notice('')
+    tout.notice(f'    {UM_FUNC}')
+    tout.notice('')
+    tout.notice('Add this for simple git aliases (ga, gf, etc.):')
+    tout.notice('')
+    tout.notice('    eval "$(um git -a)"')
+
+
 def setup_aliases(args):
     """Create symlinks for git action commands
 
@@ -64,6 +79,7 @@ def setup_aliases(args):
         tout.notice(f'Would create symlinks in {alias_dir} -> {uman_path}')
         for name in aliases:
             tout.notice(f'  {name}')
+        show_shell_hint()
         return 0
 
     # Create directory if needed
@@ -90,6 +106,7 @@ def setup_aliases(args):
             tout.notice('Use --force to overwrite')
 
     tout.notice(f'Symlinks in {alias_dir} point to {uman_path}')
+    show_shell_hint()
     return 0
 
 

@@ -3987,6 +3987,28 @@ class TestSetupSubcommand(TestBase):
         self.assertIn('Skipped', out.getvalue())
         self.assertIn('rf', out.getvalue())
 
+    def test_setup_aliases_shell_hint(self):
+        """Test setup_aliases shows shell function and git aliases hint"""
+        alias_dir = os.path.join(self.test_dir, 'aliases')
+        args = argparse.Namespace(dry_run=False, force=False,
+                                  alias_dir=alias_dir)
+        with terminal.capture() as (out, _):
+            res = setup.setup_aliases(args)
+        self.assertEqual(0, res)
+        output = out.getvalue()
+        self.assertIn(setup.UM_FUNC, output)
+        self.assertIn('eval "$(um git -a)"', output)
+
+    def test_setup_aliases_shell_hint_dry_run(self):
+        """Test setup_aliases shows shell hint in dry-run mode too"""
+        args = argparse.Namespace(dry_run=True, force=False, alias_dir=None)
+        with terminal.capture() as (out, _):
+            res = setup.setup_aliases(args)
+        self.assertEqual(0, res)
+        output = out.getvalue()
+        self.assertIn(setup.UM_FUNC, output)
+        self.assertIn('eval "$(um git -a)"', output)
+
 
 class TestMain(TestBase):
     """Tests for __main__.py"""

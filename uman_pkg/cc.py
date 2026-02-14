@@ -394,8 +394,7 @@ def launch_claude(name, cont=False, dry_run=False):
         dry_run (bool): If True, just show command
     """
     flag = ' --continue' if cont else ''
-    cmd = ['lxc', 'exec', name, '--', 'sudo', '-u', 'ubuntu', 'bash', '-c',
-           f'export PATH="$HOME/.local/bin:$HOME/bin:$PATH" && '
+    cmd = ['lxc', 'exec', name, '--', 'sudo', '-iu', 'ubuntu', 'bash', '-ic',
            f'cd {PROJECT_DEST} && claude --dangerously-skip-permissions'
            f'{flag}']
     exec_cmd(cmd, dry_run, capture=False)

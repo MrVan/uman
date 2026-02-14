@@ -55,10 +55,12 @@ def get_essential_mounts(project_src):
         ('hostbin', os.path.join(home, 'bin'), f'{UBUNTU_HOME}/bin'),
         ('uman', uman_dir, uman_dir),
     ]
-    gitconfig = os.path.join(home, '.gitconfig')
-    if os.path.exists(gitconfig):
-        mounts.append(('gitconfig', gitconfig,
-                        f'{UBUNTU_HOME}/.gitconfig'))
+    for fname, mname in [('.gitconfig', 'gitconfig'),
+                          ('.buildman', 'buildman'),
+                          ('.buildman-toolchains', 'toolchains')]:
+        path = os.path.join(home, fname)
+        if os.path.exists(path):
+            mounts.append((mname, path, f'{UBUNTU_HOME}/{fname}'))
     return mounts
 
 

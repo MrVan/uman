@@ -14,6 +14,7 @@ import tempfile
 
 # pylint: disable=import-error
 from u_boot_pylib import command
+from u_boot_pylib import tools
 from u_boot_pylib import tout
 
 from uman_pkg import cmdgit
@@ -161,8 +162,7 @@ def setup_gcc(args):
         tout.error(f'Cannot find {rst_path}')
         return 1
 
-    with open(rst_path, 'r', encoding='utf-8') as fil:
-        packages = parse_deb_packages(fil.read())
+    packages = parse_deb_packages(tools.read_file(rst_path, binary=False))
 
     if not packages:
         tout.error('No packages found in gcc.rst')

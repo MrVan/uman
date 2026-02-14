@@ -85,8 +85,9 @@ def add_claude_code_subparser(subparsers):
     cc.add_argument('-l', '--list', action='store_true',
                     dest='list_containers',
                     help='List existing uman containers with project paths')
-    cc.add_argument('-s', '--shell', action='store_true',
-                    help='Open interactive shell instead of Claude')
+    cc.add_argument('-s', '--shell', nargs='?', const=True,
+                    default=False,
+                    help='Open shell or run a command in container')
     return cc
 
 

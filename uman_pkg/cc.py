@@ -367,15 +367,18 @@ def setup_uman(name, uboot_tools=None, dry_run=False):
     lxc_exec(name, add_cmd, dry_run=dry_run, user='ubuntu')
 
 
-def launch_shell(name, dry_run=False):
-    """Open an interactive shell in the container
+def launch_shell(name, shell_command=None, dry_run=False):
+    """Open an interactive shell or run a command in the container
 
     Args:
         name (str): Container name
+        shell_command (str or None): Command to run, or None for
+            interactive shell
         dry_run (bool): If True, just show command
     """
+    shell_cmd = shell_command or 'exec bash'
     cmd = ['lxc', 'exec', name, '--', 'sudo', '-iu', 'ubuntu',
-           'bash', '-c', f'cd {PROJECT_DEST} && exec bash']
+           'bash', '-c', f'cd {PROJECT_DEST} && {shell_cmd}']
     exec_cmd(cmd, dry_run, capture=False)
 
 
@@ -579,7 +582,8 @@ def run(args):  # pylint: disable=too-many-locals,too-many-branches
 
         # Launch
         if args.shell:
-            launch_shell(name, dry_run)
+            shell_cmd = args.shell if args.shell is not True else None
+            launch_shell(name, shell_cmd, dry_run)
         else:
             launch_claude(name, args.cont, dry_run)
 

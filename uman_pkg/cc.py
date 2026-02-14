@@ -54,6 +54,9 @@ def get_essential_mounts(project_src):
          f'{UBUNTU_HOME}/.claude'),
         ('hostbin', os.path.join(home, 'bin'), f'{UBUNTU_HOME}/bin'),
         ('uman', uman_dir, uman_dir),
+        ('uboottools', os.path.realpath(os.path.expanduser(
+            os.environ.get('UBOOT_TOOLS', '~/u/tools'))),
+         f'{UBUNTU_HOME}/u/tools'),
     ]
     for fname, mname in [('.gitconfig', 'gitconfig'),
                           ('.buildman', 'buildman'),
@@ -342,7 +345,7 @@ def setup_uman(name, uboot_tools=None, dry_run=False):
         dry_run (bool): If True, just show commands
     """
     if not uboot_tools:
-        uboot_tools = f'{PROJECT_DEST}/tools'
+        uboot_tools = f'{UBUNTU_HOME}/u/tools'
 
     # Run setup aliases
     uman_dir = get_uman_dir()

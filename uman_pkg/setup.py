@@ -18,11 +18,13 @@ from u_boot_pylib import tout
 
 from uman_pkg import cmdgit
 from uman_pkg import settings
+from uman_pkg import util
 
 
 # Available components for setup command
 SETUP_COMPONENTS = {
     'aliases': 'Create symlinks for git action commands',
+    'gcc': 'GCC cross-compiler and build dependencies',
     'qemu': 'QEMU emulators for all architectures',
     'opensbi': 'OpenSBI firmware for RISC-V',
     'tfa': 'ARM Trusted Firmware for QEMU SBSA',
@@ -107,6 +109,93 @@ def setup_aliases(args):
 
     tout.notice(f'Symlinks in {alias_dir} point to {uman_path}')
     show_shell_hint()
+    return 0
+
+
+def parse_deb_packages(rst_text):
+    """Parse Debian package names from RST text containing apt-get commands
+
+    Args:
+        rst_text (str): RST file contents
+
+    Returns:
+        list of str: Package names found in apt-get install commands
+    """
+    packages = []
+    lines = rst_text.splitlines()
+    i = 0
+    while i < len(lines):
+        line = lines[i].strip()
+        if 'apt-get install' in line:
+            pos = line.index('apt-get install') + len('apt-get install')
+            rest = line[pos:]
+            while rest.endswith('\\'):
+                rest = rest[:-1]
+                i += 1
+                if i < len(lines):
+                    rest += ' ' + lines[i].strip()
+            packages.extend(rest.split())
+        i += 1
+    return packages
+
+
+def setup_gcc(args):
+    """Check and install GCC build-dependency packages from U-Boot docs
+
+    Reads doc/build/gcc.rst from the U-Boot tree, parses the Debian
+    apt-get install blocks and installs any missing packages.
+
+    Args:
+        args (argparse.Namespace): Command line arguments
+
+    Returns:
+        int: Exit code (0 for success, non-zero for failure)
+    """
+    uboot_dir = util.get_uboot_dir()
+    if not uboot_dir:
+        tout.error('Cannot find U-Boot source directory')
+        return 1
+
+    rst_path = os.path.join(uboot_dir, 'doc', 'build', 'gcc.rst')
+    if not os.path.exists(rst_path):
+        tout.error(f'Cannot find {rst_path}')
+        return 1
+
+    with open(rst_path, 'r', encoding='utf-8') as fil:
+        packages = parse_deb_packages(fil.read())
+
+    if not packages:
+        tout.error('No packages found in gcc.rst')
+        return 1
+
+    # Check which packages are missing
+    missing = []
+    for pkg in packages:
+        try:
+            command.output('dpkg', '-s', pkg)
+        except command.CommandExc:
+            missing.append(pkg)
+
+    if not missing:
+        tout.notice('All gcc packages are installed')
+        return 0
+
+    tout.notice(f'Missing gcc packages: {" ".join(missing)}')
+    install_cmd = ['sudo', 'apt-get', 'install', '-y'] + missing
+
+    if args.dry_run:
+        tout.notice(f'Would run: {" ".join(install_cmd)}')
+        return 0
+
+    tout.notice('Installing missing packages (may require sudo password)...')
+    result = command.run_pipe([install_cmd], capture=False,
+                              raise_on_error=False)
+    if result.return_code:
+        tout.error('Failed to install gcc packages')
+        tout.notice(f'Try running manually: {" ".join(install_cmd)}')
+        return 1
+
+    tout.notice('gcc packages installed')
     return 0
 
 
@@ -412,6 +501,7 @@ def do_setup(args):
     # Dispatch table for component setup functions
     setup_funcs = {
         'aliases': lambda: setup_aliases(args),
+        'gcc': lambda: setup_gcc(args),
         'qemu': lambda: setup_qemu(args),
         'opensbi': lambda: setup_opensbi(blobs_dir, args),
         'tfa': lambda: setup_tfa(blobs_dir, args),

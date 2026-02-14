@@ -4252,6 +4252,7 @@ class TestSetupSubcommand(TestBase):
             res = setup.do_setup(args)
         self.assertEqual(0, res)
         output = out.getvalue()
+        self.assertIn('gcc', output)
         self.assertIn('qemu', output)
         self.assertIn('opensbi', output)
         self.assertIn('tfa', output)
@@ -4366,8 +4367,93 @@ class TestSetupSubcommand(TestBase):
         self.assertEqual(0, res)
         self.assertIn('already present', out.getvalue())
 
+    def test_setup_gcc_parse(self):
+        """Test parsing packages from a sample RST"""
+        rst_text = """\
+Some intro text
+
+.. code-block:: bash
+
+    sudo apt-get install gcc gcc-aarch64-linux-gnu
+
+More text
+
+.. code-block:: bash
+
+    sudo apt-get install bc bison build-essential \\
+      device-tree-compiler flex
+"""
+        packages = setup.parse_deb_packages(rst_text)
+        self.assertEqual(
+            ['gcc', 'gcc-aarch64-linux-gnu', 'bc', 'bison',
+             'build-essential', 'device-tree-compiler', 'flex'],
+            packages)
+
+    def test_setup_gcc_dry_run(self):
+        """Test dry-run shows missing packages"""
+        rst_text = """\
+.. code-block:: bash
+
+    sudo apt-get install gcc gcc-aarch64-linux-gnu
+"""
+        rst_dir = os.path.join(self.test_dir, 'doc', 'build')
+        os.makedirs(rst_dir)
+        tools.write_file(os.path.join(rst_dir, 'gcc.rst'),
+                         rst_text.encode('utf-8'))
+
+        def mock_output(*cmd):
+            if 'gcc-aarch64-linux-gnu' in cmd:
+                result = command.CommandResult(return_code=1, stdout='',
+                                                stderr='', exception=None)
+                raise command.CommandExc('Package not found', result)
+
+        args = argparse.Namespace(dry_run=True, force=False)
+        with mock.patch('uman_pkg.setup.util.get_uboot_dir',
+                        return_value=self.test_dir):
+            with mock.patch('uman_pkg.setup.command.output', mock_output):
+                with terminal.capture() as (out, _):
+                    res = setup.setup_gcc(args)
+        self.assertEqual(0, res)
+        output = out.getvalue()
+        self.assertIn('Missing gcc packages', output)
+        self.assertIn('gcc-aarch64-linux-gnu', output)
+        self.assertIn('Would run:', output)
+        self.assertNotIn('gcc ', output.split('Missing')[0])
+
+    def test_setup_gcc_all_installed(self):
+        """Test setup_gcc when all packages are installed"""
+        rst_text = """\
+.. code-block:: bash
+
+    sudo apt-get install gcc
+"""
+        rst_dir = os.path.join(self.test_dir, 'doc', 'build')
+        os.makedirs(rst_dir)
+        tools.write_file(os.path.join(rst_dir, 'gcc.rst'),
+                         rst_text.encode('utf-8'))
+
+        args = argparse.Namespace(dry_run=False, force=False)
+        with mock.patch('uman_pkg.setup.util.get_uboot_dir',
+                        return_value=self.test_dir):
+            with mock.patch('uman_pkg.setup.command.output'):
+                with terminal.capture() as (out, _):
+                    res = setup.setup_gcc(args)
+        self.assertEqual(0, res)
+        self.assertIn('All gcc packages are installed', out.getvalue())
+
+    def test_setup_gcc_no_uboot(self):
+        """Test setup_gcc when U-Boot dir not found"""
+        args = argparse.Namespace(dry_run=False, force=False)
+        with mock.patch('uman_pkg.setup.util.get_uboot_dir',
+                        return_value=None):
+            with terminal.capture() as (_, err):
+                res = setup.setup_gcc(args)
+        self.assertEqual(1, res)
+        self.assertIn('Cannot find U-Boot', err.getvalue())
+
     def test_setup_components_dict(self):
         """Test that SETUP_COMPONENTS has expected entries"""
+        self.assertIn('gcc', setup.SETUP_COMPONENTS)
         self.assertIn('qemu', setup.SETUP_COMPONENTS)
         self.assertIn('opensbi', setup.SETUP_COMPONENTS)
         self.assertIn('tfa', setup.SETUP_COMPONENTS)

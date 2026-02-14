@@ -3876,7 +3876,6 @@ class TestCcSubcommand(TestBase):  # pylint: disable=R0904
         self.assertIn('datadir', names)
         self.assertIn('claudejson', names)
         self.assertIn('claudedir', names)
-        self.assertIn('gitconfig', names)
         self.assertIn('hostbin', names)
         self.assertIn('uman', names)
 

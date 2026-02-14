@@ -456,6 +456,13 @@ def add_all_mounts(name, project_src, dry_run=False):
     for mname, source, dest in get_essential_mounts(project_src):
         add_mount(name, mname, source, dest, dry_run)
 
+    # Per-container projects dir so --continue is scoped correctly
+    home = os.path.expanduser('~')
+    proj_dir = os.path.join(home, '.claude', 'cc', name)
+    os.makedirs(proj_dir, exist_ok=True)
+    add_mount(name, 'claudeproj', proj_dir,
+              f'{UBUNTU_HOME}/.claude/projects', dry_run)
+
     git_mount = get_git_symlink_mount(project_src)
     if git_mount:
         add_mount(name, *git_mount, dry_run)

@@ -5843,3 +5843,74 @@ test_fs.py::TestFs::test_ext4
                         control.run_command(args)
 
         self.assertNotIn('-L', cap[0])
+
+
+class TestPytestHooks(TestBase):
+    """Tests for pytest hooks hostname handling"""
+
+    def setUp(self):
+        super().setUp()
+        tout.init(tout.WARNING)
+        self.test_dir = tempfile.mkdtemp()
+
+    def tearDown(self):
+        shutil.rmtree(self.test_dir)
+        super().tearDown()
+
+    @mock.patch('uman_pkg.cmdpy.socket')
+    def test_ensure_hooks_host(self, mock_socket):
+        """Test ensure_hooks_host creates symlink for unknown hostname"""
+        mock_socket.gethostname.return_value = 'container-xyz'
+
+        hooks_bin = os.path.join(self.test_dir, 'bin')
+        travis_dir = os.path.join(hooks_bin, 'travis-ci')
+        os.makedirs(travis_dir)
+
+        with terminal.capture() as (out, err):
+            cmdpy.ensure_hooks_host(hooks_bin)
+
+        link = os.path.join(hooks_bin, 'container-xyz')
+        self.assertTrue(os.path.islink(link))
+        self.assertEqual('travis-ci', os.readlink(link))
+        self.assertFalse(err.getvalue())
+
+    @mock.patch('uman_pkg.cmdpy.socket')
+    def test_ensure_hooks_host_exists(self, mock_socket):
+        """Test ensure_hooks_host does nothing when hostname dir exists"""
+        mock_socket.gethostname.return_value = 'myhost'
+
+        hooks_bin = os.path.join(self.test_dir, 'bin')
+        host_dir = os.path.join(hooks_bin, 'myhost')
+        os.makedirs(host_dir)
+
+        with terminal.capture() as (out, err):
+            cmdpy.ensure_hooks_host(hooks_bin)
+
+        self.assertFalse(os.path.islink(host_dir))
+        self.assertTrue(os.path.isdir(host_dir))
+        self.assertFalse(out.getvalue())
+        self.assertFalse(err.getvalue())
+
+    @mock.patch('uman_pkg.cmdpy.settings')
+    @mock.patch('uman_pkg.cmdpy.socket')
+    def test_get_board_config_fallback(self, mock_socket, mock_settings):
+        """Test get_board_config falls back to travis-ci"""
+        mock_socket.gethostname.return_value = 'container-xyz'
+
+        hooks_dir = os.path.join(self.test_dir, 'hooks')
+        travis_dir = os.path.join(hooks_dir, 'bin', 'travis-ci')
+        os.makedirs(travis_dir)
+
+        config_content = b'console_impl=qemu\nqemu_binary=qemu-system-arm\n'
+        tools.write_file(
+            os.path.join(travis_dir, 'conf.testboard_na'),
+            config_content)
+
+        mock_settings.get.side_effect = lambda key, fallback=None: {
+            'test_hooks': hooks_dir,
+        }.get(key, fallback)
+
+        result = cmdpy.get_board_config('testboard')
+
+        self.assertEqual('qemu', result['console_impl'])
+        self.assertEqual('qemu-system-arm', result['qemu_binary'])

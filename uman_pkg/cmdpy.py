@@ -30,6 +30,9 @@ from uman_pkg import settings
 from uman_pkg.cmdtest import get_sandbox_path
 from uman_pkg.util import exec_cmd, get_uboot_dir, show_summary
 
+# Fallback hostname directory for test hooks (has standard QEMU board configs)
+HOOKS_FALLBACK = 'travis-ci'
+
 # Pattern to parse test spec: TestClass:method or TestClass.method or just name
 RE_TEST_SPEC = re.compile(r'(?:Test)?(\w+?)(?:[:.](\w+))?$', re.IGNORECASE)
 
@@ -103,6 +106,26 @@ def setup_sbsa_env(board, env):
         tout.warning(f'No TF-A directory configured for {board}')
 
 
+def ensure_hooks_host(hooks_bin):
+    """Ensure a hostname directory exists in the hooks bin directory
+
+    The test hooks scripts use hostname to find board config files. In
+    containers the hostname may not match any existing directory. Create a
+    symlink to the travis-ci directory which has all the standard QEMU configs.
+
+    Args:
+        hooks_bin (str): Path to the hooks bin/ directory
+    """
+    hostname = socket.gethostname()
+    host_dir = os.path.join(hooks_bin, hostname)
+    if os.path.exists(host_dir):
+        return
+    fallback = os.path.join(hooks_bin, HOOKS_FALLBACK)
+    if os.path.exists(fallback):
+        os.symlink(HOOKS_FALLBACK, host_dir)
+        tout.notice(f'Created symlink {host_dir} -> {HOOKS_FALLBACK}')
+
+
 def pytest_env(board):
     """Set up environment variables for pytest testing
 
@@ -128,6 +151,7 @@ def pytest_env(board):
     if uboot_dir:
         local_hooks = os.path.join(uboot_dir, 'test/hooks/bin')
         if os.path.exists(local_hooks):
+            ensure_hooks_host(local_hooks)
             path_parts.append(local_hooks)
 
     # Then configured hooks from settings
@@ -510,11 +534,16 @@ def get_board_config(board):
     board_id = 'na'  # Default board identifier
 
     # Build config file path
-    cfg = os.path.join(hooks_bin, hostname, f'conf.{board}_{board_id}')
+    cfg_name = f'conf.{board}_{board_id}'
+    cfg = os.path.join(hooks_bin, hostname, cfg_name)
 
     # Resolve symlinks
     if os.path.islink(cfg):
         cfg = os.path.realpath(cfg)
+
+    # Fall back to travis-ci directory when hostname dir is missing
+    if not os.path.exists(cfg):
+        cfg = os.path.join(hooks_bin, HOOKS_FALLBACK, cfg_name)
 
     if not os.path.exists(cfg):
         tout.error(f'Config file not found: {cfg}')

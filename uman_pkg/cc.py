@@ -343,10 +343,12 @@ def setup_uman(name, uboot_tools=None, dry_run=False):
         uboot_tools = f'{PROJECT_DEST}/tools'
 
     # Run setup aliases
+    uman_dir = get_uman_dir()
+    um_path = os.path.join(uman_dir, 'um')
     setup_cmd = (
         f'export PATH="$HOME/.local/bin:$HOME/bin:$PATH" && '
         f'export UBOOT_TOOLS="{uboot_tools}" && '
-        f'um -q setup aliases')
+        f'{um_path} -q setup aliases')
     lxc_exec(name, setup_cmd, dry_run=dry_run, user='ubuntu')
 
     # Add uman config to bashrc

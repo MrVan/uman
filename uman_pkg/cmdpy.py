@@ -1323,6 +1323,9 @@ def do_pytest(args):  # pylint: disable=too-many-return-statements,too-many-bran
     result = exec_cmd(cmd, args.dry_run, env=env, capture=False)
 
     if result is None:  # dry-run
+        qemu_cmd = get_qemu_command(board, args)
+        if qemu_cmd:
+            print(qemu_cmd)
         return 0
 
     if result.return_code != 0:

@@ -3523,6 +3523,44 @@ qemu_kernel_args="-kernel ${U_BOOT_BUILD_DIR}/u-boot.bin"
 
         self.assertIsNone(result)
 
+    @mock.patch('uman_pkg.cmdpy.settings')
+    @mock.patch('uman_pkg.cmdpy.socket')
+    def test_dry_run_shows_qemu_cmd(self, mock_socket, mock_settings):
+        """Test dry-run pytest shows QEMU command line"""
+        mock_socket.gethostname.return_value = 'testhost'
+
+        # Create config directory structure
+        hooks_dir = os.path.join(self.test_dir, 'hooks')
+        host_dir = os.path.join(hooks_dir, 'bin', 'testhost')
+        os.makedirs(host_dir)
+
+        config_content = b'''console_impl=qemu
+qemu_machine=virt
+qemu_binary=qemu-system-riscv64
+qemu_extra_args="-m 1G"
+qemu_kernel_args="-bios ${U_BOOT_BUILD_DIR}/u-boot"
+'''
+        tools.write_file(
+            os.path.join(host_dir, 'conf.myboard_na'),
+            config_content)
+
+        mock_settings.get.side_effect = lambda key, fallback=None: {
+            'test_hooks': hooks_dir,
+            'build_dir': '/tmp/b',
+        }.get(key, fallback)
+
+        args = make_args(cmd='pytest', board='myboard',
+                         dry_run=True)
+
+        with terminal.capture() as (out, _):
+            res = control.run_command(args)
+
+        self.assertEqual(0, res)
+        output = out.getvalue()
+        self.assertIn('qemu-system-riscv64', output)
+        self.assertIn('-M virt', output)
+        self.assertIn('-bios /tmp/b/myboard/u-boot', output)
+
 
 class TestGitLabParser(TestBase):
     """Test GitLab CI file parsing functionality"""

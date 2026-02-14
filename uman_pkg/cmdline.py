@@ -37,6 +37,7 @@ def get_git_action_names():
 
 # Aliases for subcommands
 ALIASES = {
+    'claude-code': ['cc'],
     'config': ['cfg'],
     'git': ['g'],
     'selftest': ['st'],
@@ -64,6 +65,29 @@ class ErrorCatchingArgumentParser(argparse.ArgumentParser):
             self.exit_state = True
             return
         super().exit(status, message)
+
+
+def add_claude_code_subparser(subparsers):
+    """Add the 'claude-code' subparser for Claude Code containers"""
+    cc = subparsers.add_parser(
+        'claude-code', aliases=ALIASES['claude-code'],
+        help='Create a Claude Code container')
+    cc.add_argument('name', nargs='?', default=None,
+                    help='Container name (default: current directory name)')
+    cc.add_argument('-b', '--base', metavar='IMAGE', default='noble',
+                    help='Ubuntu base image (default: noble)')
+    cc.add_argument('-c', '--continue', action='store_true', dest='cont',
+                    help='Continue the most recent conversation')
+    cc.add_argument('-d', '--delete', action='store_true',
+                    help='Delete the named container')
+    cc.add_argument('-e', '--ephemeral', action='store_true',
+                    help='Use a random name and delete on exit')
+    cc.add_argument('-l', '--list', action='store_true',
+                    dest='list_containers',
+                    help='List existing uman containers with project paths')
+    cc.add_argument('-s', '--shell', action='store_true',
+                    help='Open interactive shell instead of Claude')
+    return cc
 
 
 def add_ci_subparser(subparsers):
@@ -395,11 +419,15 @@ def setup_parser():
         '-n', '--dry-run', action='store_true',
         help='Show what would be executed without running commands')
     parser.add_argument(
+        '-q', '--quiet', action='store_true',
+        help='Quiet output (only warnings and errors)')
+    parser.add_argument(
         '-v', '--verbose', action='store_true', dest='verbose', default=False,
         help='Verbose output')
 
     subparsers = parser.add_subparsers(dest='cmd', required=True)
     add_build_subparser(subparsers)
+    add_claude_code_subparser(subparsers)
     add_ci_subparser(subparsers)
     add_config_subparser(subparsers)
     add_git_subparser(subparsers)

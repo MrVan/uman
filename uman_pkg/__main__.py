@@ -49,7 +49,8 @@ def run_uman():
              ftest.TestUmanCIVars, ftest.TestUmanCI,
              ftest.TestUmanControl, ftest.TestGitLabParser,
              ftest.TestUmanMergeRequest, ftest.TestSettings,
-             ftest.TestSetupSubcommand, ftest.TestMain])
+             ftest.TestCcSubcommand, ftest.TestSetupSubcommand,
+             ftest.TestMain])
         sys.exit(0 if result.wasSuccessful() else 1)
 
     # Run the appropriate command

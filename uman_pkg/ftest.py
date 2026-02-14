@@ -21,7 +21,7 @@ from u_boot_pylib import tools
 from u_boot_pylib import tout
 import gitlab
 
-from uman_pkg import (build, cmdconfig, cmdgit, cmdline, cmdpy, cmdtest,
+from uman_pkg import (build, cc, cmdconfig, cmdgit, cmdline, cmdpy, cmdtest,
                       control, gitlab_parser, settings, setup, util)
 
 # Capture stdout and stderr for silent command execution
@@ -223,6 +223,19 @@ class TestUmanCmdline(TestBase):
         # Test without flag
         args = parser.parse_args(['ci'])
         self.assertFalse(args.dry_run)
+
+    def test_quiet_flag(self):
+        """Test that quiet flag is parsed correctly"""
+        parser = cmdline.setup_parser()
+
+        args = parser.parse_args(['--quiet', 'ci'])
+        self.assertTrue(args.quiet)
+
+        args = parser.parse_args(['-q', 'ci'])
+        self.assertTrue(args.quiet)
+
+        args = parser.parse_args(['ci'])
+        self.assertFalse(args.quiet)
 
     def test_no_command_required(self):
         """Test that a command is required"""
@@ -3769,6 +3782,386 @@ class TestSettings(TestBase):
             os.path.expanduser = orig_expanduser
 
 
+class TestCcSubcommand(TestBase):  # pylint: disable=R0904
+    """Tests for the cc subcommand"""
+
+    def setUp(self):
+        super().setUp()
+        tout.init(tout.NOTICE)
+        self.config_file = os.path.join(self.test_dir, '.uman')
+        settings.SETTINGS['config'] = None
+
+    def tearDown(self):
+        settings.SETTINGS['config'] = None
+        super().tearDown()
+
+    def test_cc_parsing_defaults(self):
+        """Test that cc subcommand parses with defaults"""
+        args = cmdline.parse_args(['cc'])
+        self.assertEqual('claude-code', args.cmd)
+        self.assertEqual('noble', args.base)
+        self.assertIsNone(args.name)
+        self.assertFalse(args.shell)
+        self.assertFalse(args.cont)
+        self.assertFalse(args.ephemeral)
+
+    def test_cc_parsing_shell(self):
+        """Test cc -s flag"""
+        args = cmdline.parse_args(['cc', '-s'])
+        self.assertTrue(args.shell)
+
+    def test_cc_parsing_base(self):
+        """Test cc -b flag"""
+        args = cmdline.parse_args(['cc', '-b', 'jammy'])
+        self.assertEqual('jammy', args.base)
+
+    def test_cc_parsing_name(self):
+        """Test name as positional arg"""
+        args = cmdline.parse_args(['cc', 'mybox'])
+        self.assertEqual('mybox', args.name)
+
+    def test_cc_parsing_continue(self):
+        """Test cc -c flag"""
+        args = cmdline.parse_args(['cc', '-c', 'mybox'])
+        self.assertTrue(args.cont)
+        self.assertEqual('mybox', args.name)
+
+    def test_cc_parsing_ephemeral(self):
+        """Test cc -e flag"""
+        args = cmdline.parse_args(['cc', '-e'])
+        self.assertTrue(args.ephemeral)
+
+    def test_default_name_from_dir(self):
+        """Test that default name comes from current directory"""
+        args = cmdline.parse_args(['-n', 'cc'])
+
+        tools.write_file(self.config_file,
+                         b'[DEFAULT]\nbuild_dir = /tmp/b\n')
+        orig_expanduser = os.path.expanduser
+        os.path.expanduser = lambda p: p.replace('~', self.test_dir)
+        try:
+            with terminal.capture() as (out, _):
+                cc.run(args)
+            output = out.getvalue()
+            # Should use current dir basename as container name
+            dirname = os.path.basename(os.path.realpath(os.getcwd()))
+            self.assertIn(dirname, output)
+            # Permanent by default, no delete
+            self.assertNotIn('lxc delete', output)
+        finally:
+            os.path.expanduser = orig_expanduser
+
+    def test_gen_name(self):
+        """Test gen_name returns correct format"""
+        name = cc.gen_name('noble')
+        self.assertTrue(name.startswith('ubuntu-noble-'))
+        # Should have 4 hex chars after the last dash
+        suffix = name.split('-')[-1]
+        self.assertEqual(4, len(suffix))
+        # All chars should be valid hex
+        int(suffix, 16)
+
+    def test_get_uman_dir(self):
+        """Test get_uman_dir returns a valid path"""
+        uman_dir = cc.get_uman_dir()
+        self.assertTrue(os.path.isdir(uman_dir))
+        # Should contain the uman_pkg directory
+        self.assertTrue(
+            os.path.isdir(os.path.join(uman_dir, 'uman_pkg')))
+
+    def test_get_essential_mounts(self):
+        """Test get_essential_mounts returns expected names and paths"""
+        mounts = cc.get_essential_mounts('/tmp/myproject')
+        names = [m[0] for m in mounts]
+        self.assertIn('datadir', names)
+        self.assertIn('claudejson', names)
+        self.assertIn('claudedir', names)
+        self.assertIn('gitconfig', names)
+        self.assertIn('hostbin', names)
+        self.assertIn('uman', names)
+
+        # Check datadir maps to the project source
+        datadir = [m for m in mounts if m[0] == 'datadir'][0]
+        self.assertEqual('/tmp/myproject', datadir[1])
+        self.assertEqual(cc.PROJECT_DEST, datadir[2])
+
+    def test_get_config_mounts_no_section(self):
+        """Test get_config_mounts with no [claude-code] section"""
+        tools.write_file(self.config_file,
+                         b'[DEFAULT]\nbuild_dir = /tmp/b\n')
+        orig_expanduser = os.path.expanduser
+        os.path.expanduser = lambda p: p.replace('~', self.test_dir)
+        try:
+            with terminal.capture():
+                mounts = cc.get_config_mounts()
+            self.assertEqual([], mounts)
+        finally:
+            os.path.expanduser = orig_expanduser
+
+    def test_get_config_mounts_parses(self):
+        """Test get_config_mounts parses valid entries"""
+        config = (b'[DEFAULT]\nbuild_dir = /tmp/b\n\n'
+                  b'[claude-code]\nmounts =\n'
+                  b'    tc:/opt/tc:/home/ubuntu/tc\n'
+                  b'    data:/srv/data:/home/ubuntu/data\n')
+        tools.write_file(self.config_file, config)
+        orig_expanduser = os.path.expanduser
+        os.path.expanduser = lambda p: p.replace('~', self.test_dir)
+        try:
+            with terminal.capture():
+                mounts = cc.get_config_mounts()
+            self.assertEqual(2, len(mounts))
+            self.assertEqual('tc', mounts[0][0])
+            self.assertEqual('/opt/tc', mounts[0][1])
+            self.assertEqual('/home/ubuntu/tc', mounts[0][2])
+            self.assertEqual('data', mounts[1][0])
+        finally:
+            os.path.expanduser = orig_expanduser
+
+    def test_get_git_symlink_mount_no_symlink(self):
+        """Test get_git_symlink_mount when .git is not a symlink"""
+        # Create a regular .git directory
+        os.makedirs(os.path.join(self.test_dir, '.git'))
+        result = cc.get_git_symlink_mount(self.test_dir)
+        self.assertIsNone(result)
+
+    def test_get_git_symlink_mount_with_symlink(self):
+        """Test get_git_symlink_mount when .git is a symlink"""
+        # Create a target and a .git symlink
+        git_target = os.path.join(self.test_dir, 'real_git')
+        os.makedirs(git_target)
+        git_link = os.path.join(self.test_dir, 'project')
+        os.makedirs(git_link)
+        os.symlink(git_target, os.path.join(git_link, '.git'))
+
+        result = cc.get_git_symlink_mount(git_link)
+        self.assertIsNotNone(result)
+        self.assertEqual('dotgit', result[0])
+        self.assertEqual(git_target, result[1])
+
+    def test_dry_run(self):
+        """Test run with dry_run shows lxc commands"""
+        args = cmdline.parse_args(['-n', 'cc', 'test-cc'])
+
+        # Set up minimal config
+        tools.write_file(self.config_file,
+                         b'[DEFAULT]\nbuild_dir = /tmp/b\n')
+        orig_expanduser = os.path.expanduser
+        os.path.expanduser = lambda p: p.replace('~', self.test_dir)
+        try:
+            with terminal.capture() as (out, _):
+                cc.run(args)
+            output = out.getvalue()
+            self.assertIn('lxc init', output)
+            self.assertIn('lxc start', output)
+            # Named containers are kept
+            self.assertNotIn('lxc delete', output)
+            self.assertIn('test-cc', output)
+            self.assertNotIn('--continue', output)
+        finally:
+            os.path.expanduser = orig_expanduser
+
+    def test_dry_run_continue(self):
+        """Test that -c passes --continue to claude"""
+        args = cmdline.parse_args(['-n', 'cc', '-c', 'test-cc'])
+
+        tools.write_file(self.config_file,
+                         b'[DEFAULT]\nbuild_dir = /tmp/b\n')
+        orig_expanduser = os.path.expanduser
+        os.path.expanduser = lambda p: p.replace('~', self.test_dir)
+        try:
+            with terminal.capture() as (out, _):
+                cc.run(args)
+            self.assertIn('--continue', out.getvalue())
+        finally:
+            os.path.expanduser = orig_expanduser
+
+    def test_dry_run_ephemeral(self):
+        """Test that ephemeral containers are deleted on exit"""
+        args = cmdline.parse_args(['-n', 'cc', '-e'])
+
+        tools.write_file(self.config_file,
+                         b'[DEFAULT]\nbuild_dir = /tmp/b\n')
+        orig_expanduser = os.path.expanduser
+        os.path.expanduser = lambda p: p.replace('~', self.test_dir)
+        try:
+            with terminal.capture() as (out, _):
+                cc.run(args)
+            output = out.getvalue()
+            self.assertIn('lxc init', output)
+            self.assertIn('lxc delete', output)
+        finally:
+            os.path.expanduser = orig_expanduser
+
+    def test_run_command_cc(self):
+        """Test run_command dispatches to cc correctly"""
+        args = cmdline.parse_args(['-n', 'cc', 'test-cc'])
+        args.col = terminal.Color()
+
+        # Set up minimal config
+        tools.write_file(self.config_file,
+                         b'[DEFAULT]\nbuild_dir = /tmp/b\n')
+        orig_expanduser = os.path.expanduser
+        os.path.expanduser = lambda p: p.replace('~', self.test_dir)
+        try:
+            with terminal.capture() as (out, _):
+                res = control.run_command(args)
+            self.assertEqual(0, res)
+            self.assertIn('lxc init', out.getvalue())
+        finally:
+            os.path.expanduser = orig_expanduser
+
+    def test_cc_parsing_list(self):
+        """Test cc -l flag"""
+        args = cmdline.parse_args(['cc', '-l'])
+        self.assertTrue(args.list_containers)
+
+    def test_cc_parsing_delete(self):
+        """Test cc -d flag"""
+        args = cmdline.parse_args(['cc', '-d', 'mybox'])
+        self.assertTrue(args.delete)
+        self.assertEqual('mybox', args.name)
+
+    def test_delete(self):
+        """Test delete runs lxc delete"""
+        args = cmdline.parse_args(['-n', 'cc', '-d', 'mybox'])
+        with terminal.capture() as (out, _):
+            res = cc.run(args)
+        self.assertEqual(0, res)
+        self.assertIn('lxc delete', out.getvalue())
+        self.assertIn('mybox', out.getvalue())
+
+    def test_delete_no_name(self):
+        """Test delete without a name fails"""
+        args = cmdline.parse_args(['cc', '-d'])
+        with terminal.capture() as (_, _):
+            res = cc.run(args)
+        self.assertEqual(1, res)
+
+    def test_container_exists(self):
+        """Test container_exists with missing container"""
+        command.TEST_RESULT = command.CommandResult(
+            return_code=1, stdout='', stderr='not found')
+        self.assertFalse(cc.container_exists('no-such-container'))
+
+    def test_container_status(self):
+        """Test container_status parses lxc info output"""
+        info = 'Name: test\nStatus: RUNNING\nType: container\n'
+        command.TEST_RESULT = command.CommandResult(
+            return_code=0, stdout=info, stderr='')
+        self.assertEqual('RUNNING', cc.container_status('test'))
+
+    def test_container_status_missing(self):
+        """Test container_status with missing container"""
+        command.TEST_RESULT = command.CommandResult(
+            return_code=1, stdout='', stderr='not found')
+        self.assertIsNone(cc.container_status('no-such'))
+
+    def test_has_mount(self):
+        """Test has_mount with existing device"""
+        command.TEST_RESULT = command.CommandResult(
+            return_code=0, stdout='/some/path', stderr='')
+        self.assertTrue(cc.has_mount('mycontainer', 'datadir'))
+
+    def test_has_mount_missing(self):
+        """Test has_mount with absent device"""
+        command.TEST_RESULT = command.CommandResult(
+            return_code=1, stdout='', stderr='not found')
+        self.assertFalse(cc.has_mount('mycontainer', 'nodev'))
+
+    def test_get_project(self):
+        """Test get_project returns the datadir source"""
+        command.TEST_RESULT = command.CommandResult(
+            return_code=0, stdout='/home/user/dev/uboot\n', stderr='')
+        self.assertEqual('/home/user/dev/uboot',
+                         cc.get_project('test'))
+
+    def test_get_project_missing(self):
+        """Test get_project with no datadir device"""
+        command.TEST_RESULT = command.CommandResult(
+            return_code=1, stdout='', stderr='not found')
+        self.assertEqual('', cc.get_project('test'))
+
+    def test_list_containers(self):
+        """Test list_containers filters by datadir presence"""
+        csv = ('mybox,RUNNING\n'
+               'devbox,STOPPED\n'
+               'other-thing,RUNNING\n')
+        projects = {
+            'mybox': '/home/user/dev/uboot',
+            'devbox': '/home/user/dev/linux',
+        }
+
+        def mock_lxc(pipe_list, **_kwargs):
+            cmd = pipe_list[0]
+            if 'device' in cmd:
+                name = cmd[cmd.index('get') + 1]
+                proj = projects.get(name)
+                if proj:
+                    return command.CommandResult(
+                        return_code=0, stdout=proj + '\n', stderr='')
+                return command.CommandResult(
+                    return_code=1, stdout='', stderr='not found')
+            return command.CommandResult(
+                return_code=0, stdout=csv, stderr='')
+
+        command.TEST_RESULT = mock_lxc
+        result = cc.list_containers()
+        self.assertEqual(
+            [('mybox', 'RUNNING', '/home/user/dev/uboot'),
+             ('devbox', 'STOPPED', '/home/user/dev/linux')],
+            result)
+
+    def test_list_containers_empty(self):
+        """Test list_containers with no containers"""
+        command.TEST_RESULT = command.CommandResult(
+            return_code=0, stdout='', stderr='')
+        self.assertEqual([], cc.list_containers())
+
+    def test_reuse_existing(self):
+        """Test that reusing a container skips init and delete"""
+        args = cmdline.parse_args(['cc', 'test-cc'])
+
+        tools.write_file(self.config_file,
+                         b'[DEFAULT]\nbuild_dir = /tmp/b\n')
+        orig_expanduser = os.path.expanduser
+        os.path.expanduser = (
+            lambda p: p.replace('~', self.test_dir))
+
+        # Track which lxc commands are run
+        cmds = []
+        orig_exec = cc.exec_cmd
+
+        def fake_exec(cmd, _dry_run=False, **_kwargs):
+            cmds.append(cmd)
+            return command.CommandResult(
+                return_code=0, stdout='', stderr='')
+
+        orig_exists = cc.container_exists
+        orig_status = cc.container_status
+        orig_has_mount = cc.has_mount
+        cc.container_exists = lambda name: True
+        cc.container_status = lambda name: 'RUNNING'
+        cc.has_mount = lambda name, mname: True
+        cc.exec_cmd = fake_exec
+        try:
+            with terminal.capture() as (out, _):
+                cc.run(args)
+            output = out.getvalue()
+            self.assertIn('Reusing container', output)
+            # Should not have run lxc init or lxc delete
+            flat = [' '.join(c) for c in cmds]
+            for c in flat:
+                self.assertNotIn('lxc init', c)
+                self.assertNotIn('lxc delete', c)
+        finally:
+            cc.container_exists = orig_exists
+            cc.container_status = orig_status
+            cc.has_mount = orig_has_mount
+            cc.exec_cmd = orig_exec
+            os.path.expanduser = orig_expanduser
+
+
 class TestSetupSubcommand(TestBase):
     """Tests for the setup subcommand"""
 
@@ -4008,6 +4401,18 @@ class TestSetupSubcommand(TestBase):
         output = out.getvalue()
         self.assertIn(setup.UM_FUNC, output)
         self.assertIn('eval "$(um git -a)"', output)
+
+    def test_setup_aliases_quiet(self):
+        """Test setup_aliases suppresses notice output in quiet mode"""
+        alias_dir = os.path.join(self.test_dir, 'aliases')
+        args = argparse.Namespace(dry_run=False, force=False,
+                                  alias_dir=alias_dir)
+        tout.init(tout.WARNING)
+        with terminal.capture() as (out, _):
+            res = setup.setup_aliases(args)
+        tout.init(tout.NOTICE)
+        self.assertEqual(0, res)
+        self.assertFalse(out.getvalue())
 
 
 class TestMain(TestBase):

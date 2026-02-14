@@ -11,6 +11,9 @@ including pushing to CI, running tests, and setting up firmware dependencies.
 Subcommands
 -----------
 
+``cc``
+    Create a Claude Code container (LXC) for development
+
 ``ci``
     Push current branch to GitLab CI with configurable test stages
 
@@ -171,6 +174,81 @@ The tool can create GitLab merge requests with automated pipeline creation::
 run), not fine-grained selection of specific boards or test specifications.
 For precise targeting like ``-p coreboot`` or ``-t "test_ofplatdata"``, use
 regular CI pushes instead of merge requests.
+
+CC Subcommand
+-------------
+
+The ``cc`` command creates an LXC container for running Claude Code. It mounts
+the current directory as a project, installs build tools and Claude Code, and
+sets up uman aliases inside the container. The container name defaults to the
+current directory name and is permanent. Use ``-e`` for a throwaway container.
+
+::
+
+    # Launch Claude Code (container named after current directory)
+    uman cc
+
+    # Use an explicit container name
+    uman cc mybox
+
+    # Continue the most recent conversation
+    uman cc -c
+
+    # Open an interactive shell instead of Claude
+    uman cc -s
+
+    # Ephemeral container (random name, deleted on exit)
+    uman cc -e
+
+    # Use a specific base image
+    uman cc -b jammy
+
+    # List existing uman containers (shows name, status, project path)
+    uman cc -l
+
+    # Delete a container
+    uman cc -d mybox
+
+    # Dry-run to see what would be executed
+    uman -n cc
+
+When the container already exists, ``cc`` reuses it instead of creating a new
+one. It adds any missing mounts, starts it if stopped, and re-runs the
+idempotent setup steps.
+
+**Options**:
+
+- ``name``: Container name (default: current directory name)
+- ``-b, --base IMAGE``: Ubuntu base image (default: noble, or from config)
+- ``-c, --continue``: Continue the most recent conversation
+- ``-d, --delete``: Delete the named container
+- ``-e, --ephemeral``: Use a random name and delete on exit
+- ``-l, --list``: List existing uman containers with project paths
+- ``-s, --shell``: Open interactive shell instead of Claude
+
+**Essential Mounts** (always added):
+
+- ``datadir``: Current directory to ``/home/ubuntu/project``
+- ``claudejson``: ``~/.claude.json`` for Claude credentials
+- ``claudedir``: ``~/.claude`` for Claude configuration
+- ``gitconfig``: ``~/.gitconfig`` for git identity
+- ``hostbin``: ``~/bin`` for host scripts
+- ``uman``: Uman install directory (so ``~/bin`` symlinks work)
+- ``dotgit``: If ``.git`` is a symlink, the real target is mounted
+
+**Configuration** (``~/.uman``):
+
+Add a ``[claude-code]`` section to configure additional mounts and packages::
+
+    [claude-code]
+    base = noble
+    mounts =
+        toolchains:~/.buildman-toolchains:/home/ubuntu/.buildman-toolchains
+    packages = build-essential
+    uboot_tools = /home/ubuntu/project/tools
+
+Mount format is ``name:source:dest``, one per line. Source paths expand ``~``
+and environment variables.
 
 Git Subcommand
 --------------

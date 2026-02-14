@@ -23,6 +23,7 @@ from uman_pkg.util import exec_cmd
 # - patman.patchstream: extract_mr_info()
 # - u_boot_pylib.gitutil: extract_mr_info(), do_merge_request(), do_ci()
 # - uman_pkg.gitlab_parser: validate_ci_args()
+# - uman_pkg.cc: run_command() for 'claude-code'
 # - uman_pkg.build: run_command() for 'build'
 # - uman_pkg.cmdconfig: run_command() for 'config'
 # - uman_pkg.cmdgit: run_command() for 'git'
@@ -290,7 +291,12 @@ def run_command(args):  # pylint: disable=R0911
     # pylint: disable=import-outside-toplevel
 
     # Set verbosity level
-    tout.init(tout.INFO if args.verbose else tout.NOTICE)
+    if args.verbose:
+        tout.init(tout.INFO)
+    elif args.quiet:
+        tout.init(tout.WARNING)
+    else:
+        tout.init(tout.NOTICE)
 
     # Set up terminal color support
     args.col = terminal.Color()
@@ -303,6 +309,10 @@ def run_command(args):  # pylint: disable=R0911
     if args.cmd == 'build':
         from uman_pkg import build
         return build.run(args)
+
+    if args.cmd == 'claude-code':
+        from uman_pkg import cc
+        return cc.run(args)
 
     if args.cmd == 'ci':
         # Validate CI arguments and handle help requests

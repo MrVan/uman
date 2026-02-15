@@ -25,6 +25,9 @@ UBUNTU_HOME = '/home/ubuntu'
 # Project mount point inside the container
 PROJECT_DEST = f'{UBUNTU_HOME}/project'
 
+# Default packages to install in containers
+DEFAULT_PACKAGES = 'build-essential pylint'
+
 
 def get_uman_dir():
     """Get the uman installation directory
@@ -316,7 +319,7 @@ def install_tools(name, packages=None, dry_run=False):
         dry_run (bool): If True, just show command
     """
     if not packages:
-        packages = 'build-essential'
+        packages = DEFAULT_PACKAGES
     cmd = (f'command -v gcc >/dev/null 2>&1 || '
            f'(apt-get update -qq && apt-get install -yqq {packages})')
     lxc_exec(name, cmd, dry_run=dry_run)

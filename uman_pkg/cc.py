@@ -347,13 +347,14 @@ def setup_uman(name, uboot_tools=None, dry_run=False):
     if not uboot_tools:
         uboot_tools = f'{UBUNTU_HOME}/u/tools'
 
-    # Run setup aliases
+    # Run setup aliases into ~/.local/bin (container-local, not the
+    # host-mounted ~/bin whose symlinks use host-specific paths)
     uman_dir = get_uman_dir()
     um_path = os.path.join(uman_dir, 'um')
     setup_cmd = (
         f'export PATH="$HOME/.local/bin:$HOME/bin:$PATH" && '
         f'export UBOOT_TOOLS="{uboot_tools}" && '
-        f'{um_path} -q setup aliases')
+        f'{um_path} -q setup aliases -d ~/.local/bin -f')
     lxc_exec(name, setup_cmd, dry_run=dry_run, user='ubuntu')
 
     # Add uman config to bashrc
@@ -381,7 +382,7 @@ def launch_shell(name, shell_command=None, dry_run=False):
     """
     shell_cmd = shell_command or 'exec bash'
     cmd = ['lxc', 'exec', name, '--', 'sudo', '-iu', 'ubuntu',
-           'bash', '-c', f'cd {PROJECT_DEST} && {shell_cmd}']
+           'bash', '-ic', f'cd {PROJECT_DEST} && {shell_cmd}']
     exec_cmd(cmd, dry_run, capture=False)
 
 

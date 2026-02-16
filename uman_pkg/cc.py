@@ -303,6 +303,16 @@ def setup_container(name, dry_run=False):
     else:
         tout.notice(f'infocmp -x | lxc exec {name} -- tic -x -')
 
+    # Set timezone to match host
+    tz_file = '/etc/timezone'
+    if os.path.exists(tz_file):
+        with open(tz_file, encoding='utf-8') as inf:
+            tzone = inf.read().strip()
+        lxc_exec(name,
+                 f'ln -sf /usr/share/zoneinfo/{tzone} /etc/localtime && '
+                 f'echo {tzone} > /etc/timezone',
+                 dry_run=dry_run)
+
     # Symlink host user home to ubuntu home
     user = os.environ.get('USER', 'ubuntu')
     lxc_exec(name,

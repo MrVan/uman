@@ -13,6 +13,7 @@ import random
 import string
 
 # pylint: disable=import-error
+from u_boot_pylib import tools
 from u_boot_pylib import tout
 
 from uman_pkg import settings
@@ -306,8 +307,7 @@ def setup_container(name, dry_run=False):
     # Set timezone to match host
     tz_file = '/etc/timezone'
     if os.path.exists(tz_file):
-        with open(tz_file, encoding='utf-8') as inf:
-            tzone = inf.read().strip()
+        tzone = tools.read_file(tz_file, binary=False).strip()
         lxc_exec(name,
                  f'ln -sf /usr/share/zoneinfo/{tzone} /etc/localtime && '
                  f'echo {tzone} > /etc/timezone',

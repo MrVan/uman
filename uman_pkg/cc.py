@@ -424,6 +424,21 @@ def delete_container(name, dry_run=False):
     lxc('delete', '-f', name, dry_run=dry_run)
 
 
+def rename_container(old, new, dry_run=False):
+    """Rename (move) a container, stopping it first if needed
+
+    Args:
+        old (str): Current container name
+        new (str): New container name
+        dry_run (bool): If True, just show commands
+    """
+    status = container_status(old)
+    if status == 'RUNNING':
+        tout.notice(f'Stopping container: {old}')
+        lxc('stop', old, dry_run=dry_run)
+    lxc('move', old, new, dry_run=dry_run)
+
+
 def get_project(name):
     """Get the project source path for a container
 
@@ -548,6 +563,13 @@ def run(args):  # pylint: disable=too-many-locals,too-many-branches
             tout.error('Container name required for --delete')
             return 1
         delete_container(args.name, args.dry_run)
+        return 0
+
+    if args.rename:
+        if not args.name:
+            tout.error('Container name required for --rename')
+            return 1
+        rename_container(args.name, args.rename, args.dry_run)
         return 0
 
     dry_run = args.dry_run

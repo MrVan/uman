@@ -20,8 +20,28 @@ from u_boot_pylib import tout
 from uman_pkg.util import exec_cmd, git, git_output, git_output_quiet
 
 
+def _count_breaks(path, fname):
+    """Count 'break' lines in a rebase file
+
+    Args:
+        path (str): Rebase directory path
+        fname (str): Filename to read (e.g. 'done', 'git-rebase-todo')
+
+    Returns:
+        int: Number of lines starting with 'break'
+    """
+    fpath = os.path.join(path, fname)
+    if not os.path.exists(fpath):
+        return 0
+    return sum(1 for ln in tools.read_file(fpath, binary=False).splitlines()
+               if ln.strip().startswith('break'))
+
+
 def get_rebase_position():
     """Get current position in rebase (e.g., "3/12")
+
+    Subtracts any 'break' entries injected by rn during conflict
+    resolution, so the position reflects only real commits.
 
     Returns:
         str: Position string like "3/12", or empty string if not available
@@ -33,10 +53,14 @@ def get_rebase_position():
                 msgnum_file = os.path.join(path, 'msgnum')
                 end_file = os.path.join(path, 'end')
                 if os.path.exists(msgnum_file) and os.path.exists(end_file):
-                    with open(msgnum_file, encoding='utf-8') as inf:
-                        msgnum = inf.read().strip()
-                    with open(end_file, encoding='utf-8') as inf:
-                        end = inf.read().strip()
+                    msgnum = int(
+                        tools.read_file(msgnum_file, binary=False).strip())
+                    end = int(
+                        tools.read_file(end_file, binary=False).strip())
+                    done_breaks = _count_breaks(path, 'done')
+                    todo_breaks = _count_breaks(path, 'git-rebase-todo')
+                    msgnum -= done_breaks
+                    end -= done_breaks + todo_breaks
                     return f'{msgnum}/{end}'
         except (command.CommandExc, OSError):
             pass

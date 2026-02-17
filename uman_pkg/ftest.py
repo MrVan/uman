@@ -2390,7 +2390,7 @@ class TestGitRebase(TestBase, GitRepoMixin):
         self.assertEqual(0, result.return_code)
         self.assertFalse(result.stdout)
         self.assertRegex(out.getvalue(),
-                         r'Rebasing \d+/\d+: stopped at [0-9a-f]+\.\.\. Commit 1\n')
+                         r'Rebasing 1/4: stopped at [0-9a-f]+\.\.\. Commit 1\n')
         self.assertFalse(err.getvalue())
         self.assertTrue(self.is_rebasing())
         self.assertEqual('Commit 1', self.get_head_subject())
@@ -2408,7 +2408,7 @@ class TestGitRebase(TestBase, GitRepoMixin):
             result = cmdgit.do_rc(args)
         self.assertNotEqual(0, result.return_code)
         self.assertRegex(out.getvalue(),
-                         r'Rebasing \d+/\d+: conflict in [0-9a-f]+\.\.\. Commit 2\n')
+                         r'Rebasing 2/4: conflict in [0-9a-f]+\.\.\. Commit 2\n')
         self.assertFalse(err.getvalue())
         self.assertEqual('AA file2.txt\n',
                          command.output('git', 'status', '--porcelain'))
@@ -2422,7 +2422,7 @@ class TestGitRebase(TestBase, GitRepoMixin):
         self.assertEqual(0, result.return_code)
         # After conflict resolution, rn shows position and commit for review
         self.assertRegex(out.getvalue(),
-                         r'Rebasing \d+/\d+: review  [0-9a-f]+\.\.\. Commit 2\n')
+                         r'Rebasing 2/4: review  [0-9a-f]+\.\.\. Commit 2\n')
         self.assertFalse(err.getvalue())
         self.assertTrue(self.is_rebasing())
         self.assertEqual('Commit 2', self.get_head_subject())
@@ -2435,7 +2435,7 @@ class TestGitRebase(TestBase, GitRepoMixin):
             result = cmdgit.do_rn(args)
         self.assertNotEqual(0, result.return_code)
         self.assertRegex(out.getvalue(),
-                         r'Rebasing \d+/\d+: conflict in [0-9a-f]+\.\.\. Commit 3\n')
+                         r'Rebasing 3/4: conflict in [0-9a-f]+\.\.\. Commit 3\n')
         self.assertFalse(err.getvalue())
         self.assertEqual('AA file3.txt\n',
                          command.output('git', 'status', '--porcelain'))
@@ -2449,7 +2449,7 @@ class TestGitRebase(TestBase, GitRepoMixin):
         self.assertEqual(0, result.return_code)
         # After conflict resolution, rn shows position and commit for review
         self.assertRegex(out.getvalue(),
-                         r'Rebasing \d+/\d+: review  [0-9a-f]+\.\.\. Commit 3\n')
+                         r'Rebasing 3/4: review  [0-9a-f]+\.\.\. Commit 3\n')
         self.assertFalse(err.getvalue())
         self.assertTrue(self.is_rebasing())
         self.assertEqual('Commit 3', self.get_head_subject())
@@ -2460,7 +2460,7 @@ class TestGitRebase(TestBase, GitRepoMixin):
             result = cmdgit.do_rn(args)
         self.assertNotEqual(0, result.return_code)
         self.assertRegex(out.getvalue(),
-                         r'Rebasing \d+/\d+: conflict in [0-9a-f]+\.\.\. Commit 4\n')
+                         r'Rebasing 4/4: conflict in [0-9a-f]+\.\.\. Commit 4\n')
         self.assertFalse(err.getvalue())
         self.assertEqual('AA file4.txt\n',
                          command.output('git', 'status', '--porcelain'))

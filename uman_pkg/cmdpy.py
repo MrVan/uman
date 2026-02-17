@@ -934,7 +934,7 @@ def run_with_gdb(args):
         build_dir = f'{base_dir}/{args.board}'
     uboot_exe = os.path.join(build_dir, 'u-boot')
 
-    if not os.path.exists(uboot_exe):
+    if not args.dry_run and not os.path.exists(uboot_exe):
         tout.error(f'U-Boot executable not found: {uboot_exe}')
         return 1
 

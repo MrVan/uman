@@ -268,6 +268,7 @@ making it easier to step through commits during development.
 - ``dh`` / ``diff-head`` [N] [FILES...]: Show diff using difftool (git difftool HEAD~ or HEAD~N)
 - ``eg`` / ``errno-grep`` PATTERN: Search include/linux/errno.h for error codes
 - ``et`` / ``edit-todo``: Edit the rebase todo list
+- ``fa`` / ``find-all`` [N]: Check all branches against us/master (default 5 commits each)
 - ``fci`` / ``find-ci`` [N]: Check if commits are in ci/master (default 20)
 - ``fm`` / ``find-master`` [N]: Check if commits are in us/master (default 5)
 - ``fn`` / ``find-next`` [N]: Check if commits are in us/next (default 20)

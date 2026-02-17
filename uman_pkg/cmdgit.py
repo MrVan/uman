@@ -828,6 +828,36 @@ def do_fu(args):
     return grep_branch(branch, count, target)
 
 
+def do_fa(args):
+    """Check all branches against us/master
+
+    Args:
+        args (argparse.Namespace): Arguments from cmdline
+            args.arg: Number of commits to check per branch (default 5)
+
+    Returns:
+        int: Exit code
+    """
+    count = int(args.arg) if args.arg else 5
+    try:
+        branches = git_output(
+            'branch', '--format=%(refname:short)').splitlines()
+    except command.CommandExc:
+        tout.error('Cannot get branch list')
+        return 1
+
+    ret = 0
+    for branch in branches:
+        if not branch:
+            continue
+        print(f'=== {branch} ===')
+        result = grep_branch(branch, count, 'us/master')
+        if result:
+            ret = result
+        print()
+    return ret
+
+
 def search_log(pattern, upstream):
     """Search upstream log for a pattern
 
@@ -1248,6 +1278,7 @@ GIT_ACTIONS = [
     GitAction('eg', 'errno-grep', 'Search errno.h for error codes', do_eg),
     GitAction('et', 'edit-todo', 'Edit rebase todo list', do_et),
     GitAction('g', 'status', 'Show short status', do_g),
+    GitAction('fa', 'find-all', 'Check all branches against us/master', do_fa),
     GitAction('fci', 'find-ci', 'Check commits against ci/master', do_fci),
     GitAction('fm', 'find-master', 'Check commits against us/master', do_fm),
     GitAction('fn', 'find-next', 'Check commits against us/next', do_fn),

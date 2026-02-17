@@ -1564,6 +1564,26 @@ class TestGitSubcommand(TestBase):
         self.assertEqual(0, result)
         self.assertIn('Not found: CI commit', out.getvalue())
 
+    def test_do_fa(self):
+        """Test do_fa checks all branches against us/master"""
+        args = cmdline.parse_args(['git', 'fa'])
+        with mock.patch.object(cmdgit, 'git_output') as mock_git:
+            mock_git.side_effect = [
+                'branch-a\nbranch-b',  # branch list
+                'Commit A',  # branch-a commits
+                'abc123 Commit A',  # upstream log (match)
+                'Commit B',  # branch-b commits
+                'def456 Other stuff',  # upstream log (no match)
+            ]
+            with terminal.capture() as (out, _):
+                result = cmdgit.do_fa(args)
+        self.assertEqual(0, result)
+        output = out.getvalue()
+        self.assertIn('=== branch-a ===', output)
+        self.assertIn('Found: Commit A', output)
+        self.assertIn('=== branch-b ===', output)
+        self.assertIn('Not found: Commit B', output)
+
     def test_do_gm(self):
         """Test do_gm searches us/master log"""
         args = cmdline.parse_args(['git', 'gm', 'pattern'])

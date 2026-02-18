@@ -71,6 +71,28 @@ def show_rebase_status(output, return_code=0):
                         f'{match.group(2)}')
 
 
+def show_rb_status():
+    """Show current HEAD and next commit after rb stops at break"""
+    try:
+        head = git_output('rev-parse', '--short', 'HEAD')
+        subject = git_output('log', '-1', '--format=%s')
+        tout.notice(f'At {head}... {subject}')
+    except command.CommandExc:
+        pass
+
+    rebase_dir = get_rebase_dir()
+    if rebase_dir:
+        todo = os.path.join(rebase_dir, 'git-rebase-todo')
+        if os.path.exists(todo):
+            for line in tools.read_file(todo, binary=False).splitlines():
+                line = line.strip()
+                if line and not line.startswith('#'):
+                    parts = line.split(None, 2)
+                    if len(parts) >= 3:
+                        tout.notice(f'Before {parts[1][:10]}... {parts[2]}')
+                    break
+
+
 def seq_edit_env(action, line=1):
     """Create environment with GIT_SEQUENCE_EDITOR set
 
@@ -209,7 +231,10 @@ def do_rb(args):
                  dry_run=args.dry_run)
     if result is None:
         return 0
-    show_rebase_status(result.stdout + result.stderr, result.return_code)
+    if result.return_code == 0:
+        show_rb_status()
+    else:
+        show_rebase_status(result.stdout + result.stderr, result.return_code)
     return result
 
 

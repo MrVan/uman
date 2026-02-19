@@ -1830,12 +1830,24 @@ class TestGitSubcommand(TestBase):
     def test_do_co(self):
         """Test do_co runs git checkout"""
         args = cmdline.parse_args(['git', 'co'])
-        with mock.patch('u_boot_pylib.command.run_one') as mock_run:
-            mock_run.return_value = mock.Mock(return_code=0)
+        with mock.patch('uman_pkg.cmdgit.exec_cmd') as mock_exec:
+            mock_exec.return_value = mock.Mock(return_code=0)
             result = cmdgit.do_co(args)
         self.assertEqual(0, result)
-        call_args = mock_run.call_args[0]
-        self.assertEqual(('git', 'checkout'), call_args)
+        call_args = mock_exec.call_args[0]
+        self.assertEqual(['git', 'checkout'], call_args[0])
+
+    def test_do_co_with_flags(self):
+        """Test do_co passes through flags to git checkout"""
+        args = cmdline.parse_args(['-b', 'dock', 'gh/dock'],
+                                  prog_name='co')
+        with mock.patch('uman_pkg.cmdgit.exec_cmd') as mock_exec:
+            mock_exec.return_value = mock.Mock(return_code=0)
+            result = cmdgit.do_co(args)
+        self.assertEqual(0, result)
+        call_args = mock_exec.call_args[0]
+        self.assertEqual(['git', 'checkout', '-b', 'dock', 'gh/dock'],
+                         call_args[0])
 
     def test_do_sd(self):
         """Test do_sd shows commit using difftool"""

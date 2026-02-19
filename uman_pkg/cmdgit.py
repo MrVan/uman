@@ -17,7 +17,7 @@ from u_boot_pylib import command
 from u_boot_pylib import tools
 from u_boot_pylib import tout
 
-from uman_pkg.util import git, git_output, git_output_quiet
+from uman_pkg.util import exec_cmd, git, git_output, git_output_quiet
 
 
 def get_rebase_position():
@@ -1255,14 +1255,22 @@ def do_sl(args):
     return result.return_code
 
 
-def do_co(_args):
+def do_co(args):
     """Checkout (switch branches or restore files)
+
+    Passes through arg and extra to git checkout, e.g.:
+        co -b dock gh/dock  ->  git checkout -b dock gh/dock
 
     Returns:
         int: Exit code from git checkout
     """
-    result = command.run_one('git', 'checkout', capture=False,
-                             raise_on_error=False)
+    cmd = ['git', 'checkout']
+    if args.arg:
+        cmd.append(args.arg)
+    cmd += args.extra
+    result = exec_cmd(cmd, args.dry_run, capture=False)
+    if result is None:
+        return 0
     return result.return_code
 
 

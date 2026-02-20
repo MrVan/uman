@@ -25,6 +25,7 @@ from uman_pkg import util
 # Available components for setup command
 SETUP_COMPONENTS = {
     'aliases': 'Create symlinks for git action commands',
+    'efi': 'QEMU EFI firmware for ARM, ARM64, RISC-V and x86',
     'gcc': 'GCC cross-compiler and build dependencies',
     'qemu': 'QEMU emulators for all architectures',
     'opensbi': 'OpenSBI firmware for RISC-V',
@@ -250,6 +251,55 @@ def setup_qemu(args):
         return 1
 
     tout.notice('QEMU packages installed')
+    return 0
+
+
+# EFI firmware packages for QEMU
+EFI_PACKAGES = [
+    'ovmf',
+    'ovmf-ia32',
+    'qemu-efi-aarch64',
+    'qemu-efi-arm',
+    'qemu-efi-riscv64',
+]
+
+
+def setup_efi(args):
+    """Check and install QEMU EFI firmware packages
+
+    Args:
+        args (argparse.Namespace): Command line arguments
+
+    Returns:
+        int: Exit code (0 for success, non-zero for failure)
+    """
+    missing = []
+    for package in EFI_PACKAGES:
+        try:
+            command.output('dpkg', '-s', package)
+        except command.CommandExc:
+            missing.append(package)
+
+    if not missing:
+        tout.notice('All EFI packages are installed')
+        return 0
+
+    tout.notice(f'Missing EFI packages: {" ".join(missing)}')
+    install_cmd = ['sudo', 'apt-get', 'install', '-y'] + missing
+
+    if args.dry_run:
+        tout.notice(f'Would run: {" ".join(install_cmd)}')
+        return 0
+
+    tout.notice('Installing missing packages (may require sudo password)...')
+    result = command.run_pipe([install_cmd], capture=False,
+                              raise_on_error=False)
+    if result.return_code:
+        tout.error('Failed to install EFI packages')
+        tout.notice(f'Try running manually: {" ".join(install_cmd)}')
+        return 1
+
+    tout.notice('EFI packages installed')
     return 0
 
 
@@ -501,6 +551,7 @@ def do_setup(args):
     # Dispatch table for component setup functions
     setup_funcs = {
         'aliases': lambda: setup_aliases(args),
+        'efi': lambda: setup_efi(args),
         'gcc': lambda: setup_gcc(args),
         'qemu': lambda: setup_qemu(args),
         'opensbi': lambda: setup_opensbi(blobs_dir, args),

@@ -4311,6 +4311,7 @@ class TestSetupSubcommand(TestBase):
             res = setup.do_setup(args)
         self.assertEqual(0, res)
         output = out.getvalue()
+        self.assertIn('efi', output)
         self.assertIn('gcc', output)
         self.assertIn('qemu', output)
         self.assertIn('opensbi', output)
@@ -4332,6 +4333,33 @@ class TestSetupSubcommand(TestBase):
             res = setup.do_setup(args)
         self.assertEqual(1, res)
         self.assertIn('Unknown component', err.getvalue())
+
+    def test_setup_efi_all_installed(self):
+        """Test setup_efi when all packages are installed"""
+        args = argparse.Namespace(dry_run=False, force=False)
+        with mock.patch('uman_pkg.setup.command.output'):
+            with terminal.capture() as (out, _):
+                res = setup.setup_efi(args)
+        self.assertEqual(0, res)
+        self.assertIn('All EFI packages are installed', out.getvalue())
+
+    def test_setup_efi_dry_run(self):
+        """Test setup_efi in dry-run mode with missing packages"""
+        def mock_output(*cmd):
+            """Mock command.output to simulate missing qemu-efi-riscv64"""
+            if 'qemu-efi-riscv64' in cmd:
+                result = command.CommandResult(return_code=1, stdout='',
+                                                stderr='', exception=None)
+                raise command.CommandExc('Package not found', result)
+
+        args = argparse.Namespace(dry_run=True, force=False)
+        with mock.patch('uman_pkg.setup.command.output', mock_output):
+            with terminal.capture() as (out, _):
+                res = setup.setup_efi(args)
+        self.assertEqual(0, res)
+        output = out.getvalue()
+        self.assertIn('Would run:', output)
+        self.assertIn('qemu-efi-riscv64', output)
 
     def test_setup_qemu_all_installed(self):
         """Test setup_qemu when all packages are installed"""

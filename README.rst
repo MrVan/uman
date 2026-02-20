@@ -742,6 +742,7 @@ various architectures::
     uman setup -l
 
     # Install specific component
+    uman setup efi
     uman setup qemu
     uman setup opensbi
     uman setup tfa
@@ -766,6 +767,8 @@ various architectures::
 
 - ``aliases``: Create symlinks for git action commands (rf, rc, rd, etc.) and
   cg (config grep) in a directory. See `Symlink Invocation`_ above.
+- ``efi``: Install QEMU EFI firmware packages (OVMF for x86/IA-32,
+  qemu-efi for ARM, ARM64 and RISC-V). Uses ``apt-get`` with sudo.
 - ``qemu``: Install QEMU packages for all architectures (arm, riscv, x86, ppc,
   xtensa). Uses ``apt-get`` with sudo.
 - ``opensbi``: Download pre-built OpenSBI firmware for RISC-V (both 32-bit and

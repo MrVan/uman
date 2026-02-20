@@ -503,6 +503,15 @@ def add_all_mounts(name, project_src, dry_run=False):
     if git_mount:
         add_mount(name, *git_mount, dry_run)
 
+    # Mount container /tmp/b to host /tmp/<name>/b for easy access
+    tmp_dir = f'/tmp/{name}/b'
+    os.makedirs(tmp_dir, exist_ok=True)
+    new_tmpb = not dry_run and not has_mount(name, 'tmpb')
+    add_mount(name, 'tmpb', tmp_dir, '/tmp/b', dry_run)
+    if new_tmpb and container_status(name) == 'RUNNING':
+        tout.notice(
+            f'Added /tmp/b mount; activate with: uman cc -R {name}')
+
     for mname, source, dest in get_config_mounts():
         add_mount(name, mname, source, dest, dry_run)
 
@@ -609,6 +618,14 @@ def run(args):  # pylint: disable=too-many-locals,too-many-branches
             create_container(name, base, dry_run)
 
         add_all_mounts(name, project_src, dry_run)
+
+        if args.restart and existed:
+            status = container_status(name)
+            if not dry_run and status == 'RUNNING':
+                tout.notice('Stopping container for restart')
+                lxc('stop', name)
+            existed = False
+
         ensure_running(name, existed, dry_run)
 
         # Wait for user and set up (idempotent operations)

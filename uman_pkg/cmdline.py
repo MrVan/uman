@@ -84,6 +84,8 @@ def add_claude_code_subparser(subparsers):
                     help='Rename the named container')
     cc.add_argument('-e', '--ephemeral', action='store_true',
                     help='Use a random name and delete on exit')
+    cc.add_argument('-R', '--restart', action='store_true',
+                    help='Restart the container before launching')
     cc.add_argument('-l', '--list', action='store_true',
                     dest='list_containers',
                     help='List existing uman containers with project paths')

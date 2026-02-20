@@ -224,6 +224,7 @@ idempotent setup steps.
 - ``-d, --delete``: Delete the named container
 - ``-e, --ephemeral``: Use a random name and delete on exit
 - ``-l, --list``: List existing uman containers with project paths
+- ``-R, --restart``: Restart the container before launching
 - ``-s, --shell``: Open interactive shell instead of Claude
 
 **Essential Mounts** (always added):
@@ -234,6 +235,7 @@ idempotent setup steps.
 - ``gitconfig``: ``~/.gitconfig`` for git identity
 - ``hostbin``: ``~/bin`` for host scripts
 - ``uman``: Uman install directory (so ``~/bin`` symlinks work)
+- ``tmpb``: Container ``/tmp/b`` to ``/tmp/<name>/b`` on the host
 - ``dotgit``: If ``.git`` is a symlink, the real target is mounted
 
 **Configuration** (``~/.uman``):

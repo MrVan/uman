@@ -3901,6 +3901,12 @@ class TestCcSubcommand(TestBase):  # pylint: disable=R0904
         args = cmdline.parse_args(['cc', '-e'])
         self.assertTrue(args.ephemeral)
 
+    def test_cc_parsing_restart(self):
+        """Test cc -R flag"""
+        args = cmdline.parse_args(['cc', '-R', 'mybox'])
+        self.assertTrue(args.restart)
+        self.assertEqual('mybox', args.name)
+
     def test_default_name_from_dir(self):
         """Test that default name comes from current directory"""
         args = cmdline.parse_args(['-n', 'cc'])
@@ -4027,6 +4033,9 @@ class TestCcSubcommand(TestBase):  # pylint: disable=R0904
             self.assertNotIn('lxc delete', output)
             self.assertIn('test-cc', output)
             self.assertNotIn('--continue', output)
+            # /tmp/b mount
+            self.assertIn('tmpb', output)
+            self.assertIn('path=/tmp/b', output)
         finally:
             os.path.expanduser = orig_expanduser
 
@@ -4059,6 +4068,24 @@ class TestCcSubcommand(TestBase):  # pylint: disable=R0904
             output = out.getvalue()
             self.assertIn('lxc init', output)
             self.assertIn('lxc delete', output)
+        finally:
+            os.path.expanduser = orig_expanduser
+
+    def test_dry_run_restart(self):
+        """Test that -R passes through in dry run"""
+        args = cmdline.parse_args(['-n', 'cc', '-R', 'test-cc'])
+
+        tools.write_file(self.config_file,
+                         b'[DEFAULT]\nbuild_dir = /tmp/b\n')
+        orig_expanduser = os.path.expanduser
+        os.path.expanduser = lambda p: p.replace('~', self.test_dir)
+        try:
+            with terminal.capture() as (out, _):
+                cc.run(args)
+            output = out.getvalue()
+            # In dry run, restart has no effect (container doesn't exist)
+            # but the normal start should still appear
+            self.assertIn('lxc start', output)
         finally:
             os.path.expanduser = orig_expanduser
 

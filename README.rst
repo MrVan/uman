@@ -227,6 +227,18 @@ idempotent setup steps.
 - ``-R, --restart``: Restart the container before launching
 - ``-s, --shell``: Open interactive shell instead of Claude
 
+**Console Logging**:
+
+Every session (both Claude and shell) is recorded using ``script(1)`` to a
+timestamped log file::
+
+    ~/files/dev/uman-logs/<name>/<year>/<month>/log-YY.MMmmm.DD-HHMMSS.log
+
+For example: ``~/files/dev/uman-logs/paperman/2026/Feb/log-26.02feb.21-143022.log``
+
+The log path is printed at launch. The ``-q`` flag suppresses script's own
+start/done messages so only the session content is captured.
+
 **Essential Mounts** (always added):
 
 - ``datadir``: Current directory to ``/home/ubuntu/project``

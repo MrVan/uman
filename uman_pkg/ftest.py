@@ -4040,6 +4040,10 @@ class TestCcSubcommand(TestBase):  # pylint: disable=R0904
             self.assertIn('.uman_env', output)
             self.assertIn('.bashrc', output)
             self.assertIn('.profile', output)
+            # Session logging via script
+            self.assertIn('script -q -c', output)
+            self.assertIn('Logging to', output)
+            self.assertIn('uman-logs/test-cc/', output)
         finally:
             os.path.expanduser = orig_expanduser
 
@@ -4259,6 +4263,20 @@ class TestCcSubcommand(TestBase):  # pylint: disable=R0904
             cc.container_status = orig_status
             cc.has_mount = orig_has_mount
             cc.exec_cmd = orig_exec
+            os.path.expanduser = orig_expanduser
+
+    def test_get_log_path(self):
+        """Test get_log_path creates directory and returns expected path"""
+        orig_expanduser = os.path.expanduser
+        os.path.expanduser = lambda p: p.replace('~', self.test_dir)
+        try:
+            path = cc.get_log_path('mybox')
+            self.assertTrue(path.startswith(
+                os.path.join(self.test_dir, 'files/dev/uman-logs/mybox/')))
+            self.assertRegex(os.path.basename(path),
+                             r'log-\d{2}\.\d{2}[a-z]{3}\.\d{2}-\d{6}\.log')
+            self.assertTrue(os.path.isdir(os.path.dirname(path)))
+        finally:
             os.path.expanduser = orig_expanduser
 
 

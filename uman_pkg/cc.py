@@ -11,6 +11,7 @@ containers for running Claude Code.
 import os
 import random
 import string
+import time
 
 # pylint: disable=import-error
 from u_boot_pylib import tools
@@ -28,6 +29,26 @@ PROJECT_DEST = f'{UBUNTU_HOME}/project'
 
 # Default packages to install in containers
 DEFAULT_PACKAGES = 'build-essential pylint'
+
+
+def get_log_path(name):
+    """Construct a timestamped log file path for a container session
+
+    Creates the directory structure if it doesn't exist.
+
+    Args:
+        name (str): Container name
+
+    Returns:
+        str: Path like ~/files/dev/uman-logs/<name>/<year>/<mon>/log-...log
+    """
+    now = time.localtime()
+    log_dir = os.path.expanduser(
+        f'~/files/dev/uman-logs/{name}/{now.tm_year}'
+        f'/{time.strftime("%b", now)}')
+    os.makedirs(log_dir, exist_ok=True)
+    fname = time.strftime('log-%y.%m%b.%d-%H%M%S.log', now).lower()
+    return os.path.join(log_dir, fname)
 
 
 def get_uman_dir():
@@ -277,7 +298,6 @@ def wait_for_user(name, dry_run=False):
     if dry_run:
         tout.notice('# wait for ubuntu user')
         return
-    import time  # pylint: disable=import-outside-toplevel
     while True:
         result = exec_cmd(
             ['lxc', 'exec', name, '--', 'id', '-u', 'ubuntu'],
@@ -411,7 +431,7 @@ def setup_uman(name, uboot_tools=None, dry_run=False):
         lxc_exec(name, add_cmd, dry_run=dry_run, user='ubuntu')
 
 
-def launch_shell(name, shell_command=None, dry_run=False):
+def launch_shell(name, shell_command=None, dry_run=False, log_file=None):
     """Open an interactive shell or run a command in the container
 
     Args:
@@ -419,26 +439,28 @@ def launch_shell(name, shell_command=None, dry_run=False):
         shell_command (str or None): Command to run, or None for
             interactive shell
         dry_run (bool): If True, just show command
+        log_file (str or None): Path to log file for session recording
     """
     shell_cmd = shell_command or 'exec bash'
     cmd = ['lxc', 'exec', name, '--', 'sudo', '-iu', 'ubuntu',
            'bash', '-ic', f'cd {PROJECT_DEST} && {shell_cmd}']
-    exec_cmd(cmd, dry_run, capture=False)
+    exec_cmd(cmd, dry_run, capture=False, log_file=log_file)
 
 
-def launch_claude(name, cont=False, dry_run=False):
+def launch_claude(name, cont=False, dry_run=False, log_file=None):
     """Launch Claude Code in the container
 
     Args:
         name (str): Container name
         cont (bool): If True, continue the most recent conversation
         dry_run (bool): If True, just show command
+        log_file (str or None): Path to log file for session recording
     """
     flag = ' --continue' if cont else ''
     cmd = ['lxc', 'exec', name, '--', 'sudo', '-iu', 'ubuntu', 'bash', '-ic',
            f'cd {PROJECT_DEST} && claude --dangerously-skip-permissions'
            f'{flag}']
-    exec_cmd(cmd, dry_run, capture=False)
+    exec_cmd(cmd, dry_run, capture=False, log_file=log_file)
 
 
 def delete_container(name, dry_run=False):
@@ -584,7 +606,7 @@ def show_containers():
     return 0
 
 
-def run(args):  # pylint: disable=too-many-locals,too-many-branches
+def run(args):  # pylint: disable=too-many-locals,too-many-branches,too-many-statements
     """Main entry point for the cc subcommand
 
     Creates a container, sets it up, and launches Claude Code or a shell.
@@ -668,11 +690,13 @@ def run(args):  # pylint: disable=too-many-locals,too-many-branches
         setup_uman(name, uboot_tools, dry_run)
 
         # Launch
+        log_file = get_log_path(name)
+        tout.notice(f'Logging to {log_file}')
         if args.shell:
             shell_cmd = args.shell if args.shell is not True else None
-            launch_shell(name, shell_cmd, dry_run)
+            launch_shell(name, shell_cmd, dry_run, log_file)
         else:
-            launch_claude(name, args.cont, dry_run)
+            launch_claude(name, args.cont, dry_run, log_file)
 
     finally:
         # Only delete ephemeral containers that we created

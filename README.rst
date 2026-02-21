@@ -236,6 +236,7 @@ idempotent setup steps.
 - ``hostbin``: ``~/bin`` for host scripts
 - ``uman``: Uman install directory (so ``~/bin`` symlinks work)
 - ``tmpb``: Container ``/tmp/b`` to ``/tmp/<name>/b`` on the host
+- ``pbuilder``: ``/var/cache/pbuilder`` (if present), with uid/gid shift
 - ``dotgit``: If ``.git`` is a symlink, the real target is mounted
 
 **Configuration** (``~/.uman``):

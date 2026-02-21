@@ -243,7 +243,7 @@ def has_mount(name, mount_name):
     return result is not None and result.return_code == 0
 
 
-def add_mount(name, mount_name, source, path, dry_run=False):
+def add_mount(name, mount_name, source, path, dry_run=False, shift=False):
     """Add a disk device to the container if not already present
 
     Args:
@@ -252,11 +252,19 @@ def add_mount(name, mount_name, source, path, dry_run=False):
         source (str): Host path
         path (str): Container path
         dry_run (bool): If True, just show command
+        shift (bool): If True, use idmapped mount for uid/gid
+            translation so container root can access host-owned files
     """
     if not dry_run and has_mount(name, mount_name):
+        if shift:
+            lxc('config', 'device', 'set', name, mount_name,
+                'shift', 'true')
         return
+    args = [f'source={source}', f'path={path}']
+    if shift:
+        args.append('shift=true')
     lxc('config', 'device', 'add', '-q', name, mount_name, 'disk',
-        f'source={source}', f'path={path}', dry_run=dry_run)
+        *args, dry_run=dry_run)
 
 
 def wait_for_user(name, dry_run=False):
@@ -530,6 +538,11 @@ def add_all_mounts(name, project_src, dry_run=False):
     if new_tmpb and container_status(name) == 'RUNNING':
         tout.notice(
             f'Added /tmp/b mount; activate with: uman cc -R {name}')
+
+    pbuilder = '/var/cache/pbuilder'
+    if os.path.isdir(pbuilder):
+        add_mount(name, 'pbuilder', pbuilder, pbuilder, dry_run,
+                  shift=True)
 
     for mname, source, dest in get_config_mounts():
         add_mount(name, mname, source, dest, dry_run)

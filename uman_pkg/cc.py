@@ -350,7 +350,11 @@ def install_claude(name, dry_run=False):
 
 
 def setup_uman(name, uboot_tools=None, dry_run=False):
-    """Set up uman aliases and bashrc inside the container
+    """Set up uman aliases and environment inside the container
+
+    Writes ~/.uman_env with PATH, UBOOT_TOOLS, the um() wrapper and
+    eval aliases, then sources it from ~/.bashrc and ~/.profile so it
+    is available in interactive, login and non-interactive shells.
 
     Args:
         name (str): Container name
@@ -364,24 +368,39 @@ def setup_uman(name, uboot_tools=None, dry_run=False):
     # host-mounted ~/bin whose symlinks use host-specific paths)
     uman_dir = get_uman_dir()
     um_path = os.path.join(uman_dir, 'um')
+    uman_bin = os.path.join(uman_dir, 'uman_pkg', 'uman')
+    lxc_exec(name,
+             f'mkdir -p ~/.local/bin && '
+             f'ln -sf {uman_bin} {um_path} && '
+             f'ln -sf {uman_bin} ~/.local/bin/um',
+             dry_run=dry_run, user='ubuntu')
     setup_cmd = (
         f'export PATH="$HOME/.local/bin:$HOME/bin:$PATH" && '
         f'export UBOOT_TOOLS="{uboot_tools}" && '
         f'{um_path} -q setup aliases -d ~/.local/bin -f')
     lxc_exec(name, setup_cmd, dry_run=dry_run, user='ubuntu')
 
-    # Add uman config to bashrc
-    bashrc_block = (
-        f'\n# uman setup\n'
-        f'export PATH="$HOME/bin:$HOME/.local/bin:$PATH"\n'
+    # Write ~/.uman_env with the full environment block
+    env_block = (
+        '# uman setup — sourced by ~/.bashrc, ~/.profile and BASH_ENV\n'
+        '[ "$_UMAN_ENV_LOADED" = 1 ] && return\n'
+        '_UMAN_ENV_LOADED=1\n'
+        'export PATH="$HOME/bin:$HOME/.local/bin:$PATH"\n'
         f'export UBOOT_TOOLS="{uboot_tools}"\n'
-        f'um() {{ b="$b" USRC="$USRC" command um "$@"; }}\n'
-        f'eval "$(um git -a)"\n')
+        'um() { b="$b" USRC="$USRC" command um "$@"; }\n'
+        'eval "$(um git -a)"\n'
+        'export BASH_ENV=~/.uman_env\n')
 
-    add_cmd = (
-        f"grep -q 'um git -a' ~/.bashrc 2>/dev/null || "
-        f"cat >> ~/.bashrc <<'BASHEOF'{bashrc_block}BASHEOF")
-    lxc_exec(name, add_cmd, dry_run=dry_run, user='ubuntu')
+    write_cmd = f"cat > ~/.uman_env <<'ENVEOF'\n{env_block}ENVEOF"
+    lxc_exec(name, write_cmd, dry_run=dry_run, user='ubuntu')
+
+    # Source from ~/.bashrc (interactive non-login shells)
+    source_line = '[ -f ~/.uman_env ] && . ~/.uman_env'
+    for rcfile in ('~/.bashrc', '~/.profile'):
+        add_cmd = (
+            f"grep -q '.uman_env' {rcfile} 2>/dev/null || "
+            f"echo '{source_line}' >> {rcfile}")
+        lxc_exec(name, add_cmd, dry_run=dry_run, user='ubuntu')
 
 
 def launch_shell(name, shell_command=None, dry_run=False):

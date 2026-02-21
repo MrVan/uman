@@ -4036,6 +4036,10 @@ class TestCcSubcommand(TestBase):  # pylint: disable=R0904
             # /tmp/b mount
             self.assertIn('tmpb', output)
             self.assertIn('path=/tmp/b', output)
+            # uman env written and sourced
+            self.assertIn('.uman_env', output)
+            self.assertIn('.bashrc', output)
+            self.assertIn('.profile', output)
         finally:
             os.path.expanduser = orig_expanduser
 
@@ -4256,6 +4260,81 @@ class TestCcSubcommand(TestBase):  # pylint: disable=R0904
             cc.has_mount = orig_has_mount
             cc.exec_cmd = orig_exec
             os.path.expanduser = orig_expanduser
+
+
+@unittest.skipUnless(shutil.which('lxc'), 'LXC not available')
+class TestCcFunctional(unittest.TestCase):
+    """Functional tests using a real LXC container"""
+
+    NAME = 'uman-ftest'
+
+    @classmethod
+    def setUpClass(cls):
+        uman_dir = cc.get_uman_dir()
+        uboot_tools = os.path.realpath(os.path.expanduser(
+            os.environ.get('UBOOT_TOOLS', '~/u/tools')))
+        cc.create_container(cls.NAME, 'noble')
+        cc.add_mount(cls.NAME, 'uman', uman_dir, uman_dir)
+        cc.add_mount(cls.NAME, 'utools', uboot_tools,
+                     f'{cc.UBUNTU_HOME}/u/tools')
+        cc.lxc('start', cls.NAME)
+        cc.wait_for_user(cls.NAME)
+        cc.setup_container(cls.NAME)
+        cc.setup_uman(cls.NAME)
+
+    @classmethod
+    def tearDownClass(cls):
+        cc.delete_container(cls.NAME)
+
+    def lxc_shell(self, cmd, mode):
+        """Run a command inside the container in a given shell mode
+
+        Args:
+            cmd (str): Shell command string
+            mode (str): 'interactive' or 'claude'
+
+        Returns:
+            str: Combined stdout+stderr
+        """
+        if mode == 'interactive':
+            args = ['lxc', 'exec', self.NAME, '--', 'sudo', '-iu',
+                    'ubuntu', 'bash', '-ic', cmd]
+        else:
+            args = ['lxc', 'exec', self.NAME, '--', 'sudo', '-iu',
+                    'ubuntu', 'bash', '-lc', f'bash -c {cmd!r}']
+        result = subprocess.run(args, capture_output=True, check=False,
+                                text=True)
+        return result.stdout + result.stderr
+
+    def test_interactive_rf(self):
+        """Test rf symlink is available in interactive mode"""
+        out = self.lxc_shell('type rf', 'interactive')
+        self.assertIn('rf is /home/ubuntu/.local/bin/rf', out)
+
+    def test_interactive_um_func(self):
+        """Test um shell function is available in interactive mode"""
+        out = self.lxc_shell('type um', 'interactive')
+        self.assertIn('um is a function', out)
+
+    def test_interactive_alias(self):
+        """Test am alias is available in interactive mode"""
+        out = self.lxc_shell('type am', 'interactive')
+        self.assertIn('am is aliased to', out)
+
+    def test_claude_rf(self):
+        """Test rf symlink is available in claude mode"""
+        out = self.lxc_shell('type rf', 'claude')
+        self.assertIn('rf is /home/ubuntu/.local/bin/rf', out)
+
+    def test_claude_um_func(self):
+        """Test um shell function is available in claude mode"""
+        out = self.lxc_shell('type um', 'claude')
+        self.assertIn('um is a function', out)
+
+    def test_claude_bash_env(self):
+        """Test BASH_ENV is set to .uman_env in claude mode"""
+        out = self.lxc_shell('echo $BASH_ENV', 'claude')
+        self.assertIn('/home/ubuntu/.uman_env', out)
 
 
 class TestSetupSubcommand(TestBase):
@@ -4601,6 +4680,7 @@ More text
         output = out.getvalue()
         self.assertIn(setup.UM_FUNC, output)
         self.assertIn('eval "$(um git -a)"', output)
+        self.assertIn('.uman_env', output)
 
     def test_setup_aliases_shell_hint_dry_run(self):
         """Test setup_aliases shows shell hint in dry-run mode too"""
@@ -4611,6 +4691,7 @@ More text
         output = out.getvalue()
         self.assertIn(setup.UM_FUNC, output)
         self.assertIn('eval "$(um git -a)"', output)
+        self.assertIn('.uman_env', output)
 
     def test_setup_aliases_quiet(self):
         """Test setup_aliases suppresses notice output in quiet mode"""

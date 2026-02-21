@@ -39,7 +39,8 @@ UM_FUNC = 'um() { b="$b" USRC="$USRC" command um "$@"; }'
 def show_shell_hint():
     """Show the shell function hint for setting up the 'um' wrapper"""
     tout.notice('')
-    tout.notice('Add this to ~/.bashrc to pass shell variables to uman:')
+    tout.notice('Add this to ~/.bashrc (or source ~/.uman_env) to pass'
+                ' shell variables to uman:')
     tout.notice('')
     tout.notice(f'    {UM_FUNC}')
     tout.notice('')

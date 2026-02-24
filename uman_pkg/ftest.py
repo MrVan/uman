@@ -3171,19 +3171,21 @@ class TestUmanControl(TestBase):  # pylint: disable=too-many-public-methods
         self.assertIn('--quiet-hooks', cmd)
 
     def test_pytest_no_full_unsupported(self):
-        """Test do_pytest detects --no-full not supported"""
+        """Test do_pytest omits --no-full when tree lacks support"""
+        calls = []
 
         def mock_subprocess_run(cmd, **_kwargs):
-            return subprocess.CompletedProcess(
-                cmd, 4, stderr=b'error: unrecognized arguments: --no-full')
+            calls.append(list(cmd))
+            return subprocess.CompletedProcess(cmd, 0, stderr=b'')
 
         args = make_args(cmd='pytest', board='sandbox')
         with mock.patch('subprocess.run', mock_subprocess_run):
-            with terminal.capture() as (_, err):
-                res = control.run_command(args)
-        self.assertEqual(4, res)
-        self.assertIn('--no-full', err.getvalue())
-        self.assertIn('use -f', err.getvalue())
+            with mock.patch('uman_pkg.cmdpy.has_no_full', return_value=False):
+                with terminal.capture():
+                    res = control.run_command(args)
+        self.assertEqual(0, res)
+        self.assertEqual(1, len(calls))
+        self.assertNotIn('--no-full', calls[0])
 
     def test_pytest_lto_flag(self):
         """Test -L/--lto flag for pytest"""
@@ -5913,7 +5915,8 @@ test_fs.py::TestFs::test_ext4
                 return_code=0, stdout='', stderr='')
             args = argparse.Namespace(board='sandbox', build_dir=None,
                                       test_spec=None, build=False, flattree_too=False, output_dir=None)
-            cmdpy.collect_tests(args)
+            with mock.patch('uman_pkg.cmdpy.has_no_full', return_value=True):
+                cmdpy.collect_tests(args)
 
         cmd = mock_run.call_args[0][0][0]
         self.assertIn('--no-full', cmd)
@@ -5932,19 +5935,18 @@ test_fs.py::TestFs::test_ext4
         self.assertNotIn('--no-full', cmd)
 
     def test_collect_tests_no_full_unsupported(self):
-        """Test collect_tests detects --no-full not supported"""
+        """Test collect_tests omits --no-full when tree lacks support"""
         with mock.patch.object(command, 'run_pipe') as mock_run:
             mock_run.return_value = mock.Mock(
-                return_code=4, stdout='',
-                stderr='error: unrecognized arguments: --no-full')
+                return_code=0, stdout='', stderr='')
             args = argparse.Namespace(board='sandbox', build_dir=None,
-                                      test_spec=None, build=False, flattree_too=False, output_dir=None)
-            with terminal.capture() as (_, err):
-                result = cmdpy.collect_tests(args)
+                                      test_spec=None, build=False,
+                                      flattree_too=False, output_dir=None)
+            with mock.patch('uman_pkg.cmdpy.has_no_full', return_value=False):
+                cmdpy.collect_tests(args)
 
-        self.assertIsNone(result)
-        self.assertIn('--no-full', err.getvalue())
-        self.assertIn('use -f', err.getvalue())
+        cmd = mock_run.call_args[0][0][0]
+        self.assertNotIn('--no-full', cmd)
 
     def test_pollute_run_no_full_flag(self):
         """Test pollute_run adds --no-full when full=False"""
@@ -5958,9 +5960,10 @@ test_fs.py::TestFs::test_ext4
             return proc
 
         with mock.patch('subprocess.Popen', mock_popen):
-            args = argparse.Namespace(board='sandbox', build_dir=None,
-                                      lto=False, flattree_too=False, output_dir=None)
-            cmdpy.pollute_run([], 'test_target', args, {})
+            with mock.patch('uman_pkg.cmdpy.has_no_full', return_value=True):
+                args = argparse.Namespace(board='sandbox', build_dir=None,
+                                          lto=False, flattree_too=False, output_dir=None)
+                cmdpy.pollute_run([], 'test_target', args, {})
 
         self.assertIn('--no-full', captured_cmd)
 

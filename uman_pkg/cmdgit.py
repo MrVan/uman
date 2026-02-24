@@ -1298,6 +1298,25 @@ def do_co(args):
     return result.return_code
 
 
+def do_gp(args):
+    """Cherry-pick a commit
+
+    Passes through arg and extra to git cherry-pick, e.g.:
+        gp abc123  ->  git cherry-pick abc123
+
+    Returns:
+        int: Exit code from git cherry-pick
+    """
+    cmd = ['git', 'cherry-pick']
+    if args.arg:
+        cmd.append(args.arg)
+    cmd += args.extra
+    result = exec_cmd(cmd, args.dry_run, capture=False)
+    if result is None:
+        return 0
+    return result.return_code
+
+
 def do_st(_args):
     """Stash changes
 
@@ -1345,6 +1364,7 @@ GIT_ACTIONS = [
     GitAction('gci', 'grep-ci', 'Search ci/master log for pattern', do_gci),
     GitAction('gd', 'difftool', 'Show changes using difftool', do_gd),
     GitAction('gdc', 'difftool-cached', 'Show staged changes', do_gdc),
+    GitAction('gp', 'cherry-pick', 'Cherry-pick a commit', do_gp),
     GitAction('gm', 'grep-master', 'Search us/master log for pattern', do_gm),
     GitAction('gn', 'grep-next', 'Search us/next log for pattern', do_gn),
     GitAction('gr', 'git-rebase', 'Start interactive rebase', do_gr),
@@ -1389,6 +1409,7 @@ SIMPLE_ALIASES = {
     'gba': 'git branch -a',
     'gd': 'git difftool',
     'gdc': 'git difftool --cached',
+    'gp': 'git cherry-pick',
     'pe': 'git log --oneline -n10 --decorate',
     'rc': 'git rebase --continue',
     'rs': 'git rebase --skip',

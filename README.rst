@@ -294,6 +294,7 @@ making it easier to step through commits during development.
 - ``gci`` / ``grep-ci`` PATTERN: Search ci/master log for pattern
 - ``gd`` / ``difftool``: Show changes using difftool
 - ``gdc`` / ``difftool-cached``: Show staged changes using difftool
+- ``gp`` / ``cherry-pick``: Cherry-pick a commit
 - ``gm`` / ``grep-master`` PATTERN: Search us/master log for pattern
 - ``gn`` / ``grep-next`` PATTERN: Search us/next log for pattern
 - ``gr`` / ``git-rebase`` [N]: Open interactive rebase editor (to upstream or HEAD~N)

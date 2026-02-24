@@ -1849,6 +1849,16 @@ class TestGitSubcommand(TestBase):
         self.assertEqual(['git', 'checkout', '-b', 'dock', 'gh/dock'],
                          call_args[0])
 
+    def test_do_gp(self):
+        """Test do_gp runs git cherry-pick"""
+        args = cmdline.parse_args(['git', 'gp', 'abc123'])
+        with mock.patch('uman_pkg.cmdgit.exec_cmd') as mock_exec:
+            mock_exec.return_value = mock.Mock(return_code=0)
+            result = cmdgit.do_gp(args)
+        self.assertEqual(0, result)
+        call_args = mock_exec.call_args[0]
+        self.assertEqual(['git', 'cherry-pick', 'abc123'], call_args[0])
+
     def test_do_sd(self):
         """Test do_sd shows commit using difftool"""
         args = cmdline.parse_args(['git', 'sd'])

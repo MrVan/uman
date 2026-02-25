@@ -1189,11 +1189,25 @@ class TestGitSubcommand(TestBase):
         """Test show_rebase_status parses conflict message"""
         with mock.patch.object(cmdgit, 'get_rebase_position',
                                return_value='3/5'):
-            with terminal.capture() as (out, _):
-                cmdgit.show_rebase_status(
-                    'Could not apply abc1234... Fix bug', return_code=1)
+            with mock.patch.object(cmdgit, 'has_conflicts',
+                                   return_value=True):
+                with terminal.capture() as (out, _):
+                    cmdgit.show_rebase_status(
+                        'Could not apply abc1234... Fix bug', return_code=1)
         self.assertEqual(
             'Rebasing 3/5: conflict in abc1234... Fix bug\n', out.getvalue())
+
+    def test_show_rebase_status_empty(self):
+        """Test show_rebase_status detects empty commit"""
+        with mock.patch.object(cmdgit, 'get_rebase_position',
+                               return_value='7/7'):
+            with mock.patch.object(cmdgit, 'has_conflicts',
+                                   return_value=False):
+                with terminal.capture() as (out, _):
+                    cmdgit.show_rebase_status(
+                        'Could not apply abc1234... wip', return_code=1)
+        self.assertEqual(
+            'Rebasing 7/7: empty commit abc1234... wip\n', out.getvalue())
 
     def test_has_unstaged_changes_none(self):
         """Test has_unstaged_changes returns False when no changes"""

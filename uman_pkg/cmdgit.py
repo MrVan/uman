@@ -91,7 +91,11 @@ def show_rebase_status(output, return_code=0):
     if return_code:
         match = re.search(r'Could not apply ([0-9a-f]+)\.\.\. (.+)', output)
         if match:
-            tout.notice(f'Rebasing{pos_str} conflict in {match.group(1)}... '
+            if has_conflicts():
+                label = 'conflict in'
+            else:
+                label = 'empty commit'
+            tout.notice(f'Rebasing{pos_str} {label} {match.group(1)}... '
                         f'{match.group(2)}')
 
 

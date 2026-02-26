@@ -847,17 +847,18 @@ Settings are stored in ``~/.uman`` (created on first run)::
 Environment Variables
 ~~~~~~~~~~~~~~~~~~~~~
 
+``UMAN_EXTERNAL_PYLIB``
+    Set to ``1`` to use u_boot_pylib from ``UBOOT_TOOLS`` instead of the
+    embedded copy. Useful for testing against a newer version of the library.
+
 ``UBOOT_TOOLS``
     Path to U-Boot tools directory containing Python libraries (u_boot_pylib,
-    patman, buildman, etc.). This is used for importing Python modules.
+    patman, buildman, etc.). Only used when ``UMAN_EXTERNAL_PYLIB=1``.
     Default: ``~/u/tools``
 
 ``USRC``
     Path to U-Boot source tree to work in. If not set, uman expects to be run
     from within a U-Boot source tree.
-
-These are separate: ``UBOOT_TOOLS`` specifies where to find Python imports,
-while ``USRC`` specifies the U-Boot source tree to build/test.
 
 Self-testing
 ------------

@@ -8,8 +8,8 @@
 
 ## Testing
 
-- Run tests with: `PYTHONPATH=~/u/tools python -m pytest uman_pkg/ftest.py -v`
-- Run pylint with: `PYTHONPATH=~/u/tools python3 -m pylint uman_pkg/ftest.py`
+- Run tests with: `python -m pytest uman_pkg/ftest.py -v`
+- Run pylint with: `python3 -m pylint uman_pkg/ftest.py`
 
 ### Test conventions
 

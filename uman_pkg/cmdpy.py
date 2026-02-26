@@ -55,6 +55,21 @@ CTestInfo = collections.namedtuple('CTestInfo',
                                    ['suite', 'c_test', 'kwargs', 'fixtures'])
 
 
+def has_no_full():
+    """Check whether the U-Boot tree supports --no-full
+
+    Looks for 'no-full' in test/py/conftest.py in the current directory.
+
+    Returns:
+        bool: True if --no-full is supported
+    """
+    conftest = os.path.join('test', 'py', 'conftest.py')
+    try:
+        return 'no-full' in tools.read_file(conftest, binary=False)
+    except OSError:
+        return False
+
+
 def setup_riscv_env(board, env):
     """Set up OPENSBI environment for RISC-V boards
 
@@ -450,7 +465,7 @@ def build_pytest_cmd(args):
         cmd.extend(['--gdbserver', args.gdbserver])
     if args.exitfirst:
         cmd.append('-x')
-    if not args.flattree_too:
+    if not args.flattree_too and has_no_full():
         cmd.append('--no-full')
 
     # Add extra pytest arguments (after --)
@@ -981,7 +996,7 @@ def collect_tests(args):
 
     if args.build:
         cmd.append('--build')
-    if not args.flattree_too:
+    if not args.flattree_too and has_no_full():
         cmd.append('--no-full')
 
     if args.test_spec:
@@ -991,13 +1006,9 @@ def collect_tests(args):
     result = command.run_pipe([cmd], capture=True, capture_stderr=True,
                               raise_on_error=False)
     if result.return_code != 0:
-        if 'unrecognized arguments: --no-full' in result.stderr:
-            tout.error(
-                'U-Boot does not support --no-full; use -f to run all tests')
-        else:
-            tout.error('Failed to collect tests')
-            if result.stderr:
-                print(result.stderr)
+        tout.error('Failed to collect tests')
+        if result.stderr:
+            print(result.stderr)
         return None
 
     tests = []
@@ -1089,7 +1100,7 @@ def pollute_run(tests, target, args, env):
            '--buildman', '--id', 'na', '-q', '-k', spec]
     if args.lto:
         cmd.append('--lto')
-    if not args.flattree_too:
+    if not args.flattree_too and has_no_full():
         cmd.append('--no-full')
 
     total = len(all_tests)
@@ -1358,14 +1369,10 @@ def do_pytest(args):  # pylint: disable=too-many-return-statements,too-many-bran
         return 0
 
     if result.return_code != 0:
-        if 'unrecognized arguments: --no-full' in result.stderr:
-            tout.error(
-                'U-Boot does not support --no-full; use -f to run all tests')
-        else:
-            if result.stderr:
-                print(result.stderr, file=sys.stderr)
-            if not args.quiet:
-                tout.error('pytest failed')
+        if result.stderr:
+            print(result.stderr, file=sys.stderr)
+        if not args.quiet:
+            tout.error('pytest failed')
         return result.return_code
 
     if not args.quiet:

@@ -1189,11 +1189,25 @@ class TestGitSubcommand(TestBase):
         """Test show_rebase_status parses conflict message"""
         with mock.patch.object(cmdgit, 'get_rebase_position',
                                return_value='3/5'):
-            with terminal.capture() as (out, _):
-                cmdgit.show_rebase_status(
-                    'Could not apply abc1234... Fix bug', return_code=1)
+            with mock.patch.object(cmdgit, 'has_conflicts',
+                                   return_value=True):
+                with terminal.capture() as (out, _):
+                    cmdgit.show_rebase_status(
+                        'Could not apply abc1234... Fix bug', return_code=1)
         self.assertEqual(
             'Rebasing 3/5: conflict in abc1234... Fix bug\n', out.getvalue())
+
+    def test_show_rebase_status_empty(self):
+        """Test show_rebase_status detects empty commit"""
+        with mock.patch.object(cmdgit, 'get_rebase_position',
+                               return_value='7/7'):
+            with mock.patch.object(cmdgit, 'has_conflicts',
+                                   return_value=False):
+                with terminal.capture() as (out, _):
+                    cmdgit.show_rebase_status(
+                        'Could not apply abc1234... wip', return_code=1)
+        self.assertEqual(
+            'Rebasing 7/7: empty commit abc1234... wip\n', out.getvalue())
 
     def test_has_unstaged_changes_none(self):
         """Test has_unstaged_changes returns False when no changes"""
@@ -1830,12 +1844,34 @@ class TestGitSubcommand(TestBase):
     def test_do_co(self):
         """Test do_co runs git checkout"""
         args = cmdline.parse_args(['git', 'co'])
-        with mock.patch('u_boot_pylib.command.run_one') as mock_run:
-            mock_run.return_value = mock.Mock(return_code=0)
+        with mock.patch('uman_pkg.cmdgit.exec_cmd') as mock_exec:
+            mock_exec.return_value = mock.Mock(return_code=0)
             result = cmdgit.do_co(args)
         self.assertEqual(0, result)
-        call_args = mock_run.call_args[0]
-        self.assertEqual(('git', 'checkout'), call_args)
+        call_args = mock_exec.call_args[0]
+        self.assertEqual(['git', 'checkout'], call_args[0])
+
+    def test_do_co_with_flags(self):
+        """Test do_co passes through flags to git checkout"""
+        args = cmdline.parse_args(['-b', 'dock', 'gh/dock'],
+                                  prog_name='co')
+        with mock.patch('uman_pkg.cmdgit.exec_cmd') as mock_exec:
+            mock_exec.return_value = mock.Mock(return_code=0)
+            result = cmdgit.do_co(args)
+        self.assertEqual(0, result)
+        call_args = mock_exec.call_args[0]
+        self.assertEqual(['git', 'checkout', '-b', 'dock', 'gh/dock'],
+                         call_args[0])
+
+    def test_do_gp(self):
+        """Test do_gp runs git cherry-pick"""
+        args = cmdline.parse_args(['git', 'gp', 'abc123'])
+        with mock.patch('uman_pkg.cmdgit.exec_cmd') as mock_exec:
+            mock_exec.return_value = mock.Mock(return_code=0)
+            result = cmdgit.do_gp(args)
+        self.assertEqual(0, result)
+        call_args = mock_exec.call_args[0]
+        self.assertEqual(['git', 'cherry-pick', 'abc123'], call_args[0])
 
     def test_do_sd(self):
         """Test do_sd shows commit using difftool"""
@@ -2378,7 +2414,7 @@ class TestGitRebase(TestBase, GitRepoMixin):
         self.assertEqual(0, result.return_code)
         self.assertFalse(result.stdout)
         self.assertRegex(out.getvalue(),
-                         r'Rebasing \d+/\d+: stopped at [0-9a-f]+\.\.\. Commit 1\n')
+                         r'Rebasing 1/4: stopped at [0-9a-f]+\.\.\. Commit 1\n')
         self.assertFalse(err.getvalue())
         self.assertTrue(self.is_rebasing())
         self.assertEqual('Commit 1', self.get_head_subject())
@@ -2396,7 +2432,7 @@ class TestGitRebase(TestBase, GitRepoMixin):
             result = cmdgit.do_rc(args)
         self.assertNotEqual(0, result.return_code)
         self.assertRegex(out.getvalue(),
-                         r'Rebasing \d+/\d+: conflict in [0-9a-f]+\.\.\. Commit 2\n')
+                         r'Rebasing 2/4: conflict in [0-9a-f]+\.\.\. Commit 2\n')
         self.assertFalse(err.getvalue())
         self.assertEqual('AA file2.txt\n',
                          command.output('git', 'status', '--porcelain'))
@@ -2410,7 +2446,7 @@ class TestGitRebase(TestBase, GitRepoMixin):
         self.assertEqual(0, result.return_code)
         # After conflict resolution, rn shows position and commit for review
         self.assertRegex(out.getvalue(),
-                         r'Rebasing \d+/\d+: review  [0-9a-f]+\.\.\. Commit 2\n')
+                         r'Rebasing 2/4: review  [0-9a-f]+\.\.\. Commit 2\n')
         self.assertFalse(err.getvalue())
         self.assertTrue(self.is_rebasing())
         self.assertEqual('Commit 2', self.get_head_subject())
@@ -2423,7 +2459,7 @@ class TestGitRebase(TestBase, GitRepoMixin):
             result = cmdgit.do_rn(args)
         self.assertNotEqual(0, result.return_code)
         self.assertRegex(out.getvalue(),
-                         r'Rebasing \d+/\d+: conflict in [0-9a-f]+\.\.\. Commit 3\n')
+                         r'Rebasing 3/4: conflict in [0-9a-f]+\.\.\. Commit 3\n')
         self.assertFalse(err.getvalue())
         self.assertEqual('AA file3.txt\n',
                          command.output('git', 'status', '--porcelain'))
@@ -2437,7 +2473,7 @@ class TestGitRebase(TestBase, GitRepoMixin):
         self.assertEqual(0, result.return_code)
         # After conflict resolution, rn shows position and commit for review
         self.assertRegex(out.getvalue(),
-                         r'Rebasing \d+/\d+: review  [0-9a-f]+\.\.\. Commit 3\n')
+                         r'Rebasing 3/4: review  [0-9a-f]+\.\.\. Commit 3\n')
         self.assertFalse(err.getvalue())
         self.assertTrue(self.is_rebasing())
         self.assertEqual('Commit 3', self.get_head_subject())
@@ -2448,7 +2484,7 @@ class TestGitRebase(TestBase, GitRepoMixin):
             result = cmdgit.do_rn(args)
         self.assertNotEqual(0, result.return_code)
         self.assertRegex(out.getvalue(),
-                         r'Rebasing \d+/\d+: conflict in [0-9a-f]+\.\.\. Commit 4\n')
+                         r'Rebasing 4/4: conflict in [0-9a-f]+\.\.\. Commit 4\n')
         self.assertFalse(err.getvalue())
         self.assertEqual('AA file4.txt\n',
                          command.output('git', 'status', '--porcelain'))
@@ -3149,19 +3185,21 @@ class TestUmanControl(TestBase):  # pylint: disable=too-many-public-methods
         self.assertIn('--quiet-hooks', cmd)
 
     def test_pytest_no_full_unsupported(self):
-        """Test do_pytest detects --no-full not supported"""
+        """Test do_pytest omits --no-full when tree lacks support"""
+        calls = []
 
         def mock_subprocess_run(cmd, **_kwargs):
-            return subprocess.CompletedProcess(
-                cmd, 4, stderr=b'error: unrecognized arguments: --no-full')
+            calls.append(list(cmd))
+            return subprocess.CompletedProcess(cmd, 0, stderr=b'')
 
         args = make_args(cmd='pytest', board='sandbox')
         with mock.patch('subprocess.run', mock_subprocess_run):
-            with terminal.capture() as (_, err):
-                res = control.run_command(args)
-        self.assertEqual(4, res)
-        self.assertIn('--no-full', err.getvalue())
-        self.assertIn('use -f', err.getvalue())
+            with mock.patch('uman_pkg.cmdpy.has_no_full', return_value=False):
+                with terminal.capture():
+                    res = control.run_command(args)
+        self.assertEqual(0, res)
+        self.assertEqual(1, len(calls))
+        self.assertNotIn('--no-full', calls[0])
 
     def test_pytest_lto_flag(self):
         """Test -L/--lto flag for pytest"""
@@ -3889,6 +3927,12 @@ class TestCcSubcommand(TestBase):  # pylint: disable=R0904
         args = cmdline.parse_args(['cc', '-e'])
         self.assertTrue(args.ephemeral)
 
+    def test_cc_parsing_restart(self):
+        """Test cc -R flag"""
+        args = cmdline.parse_args(['cc', '-R', 'mybox'])
+        self.assertTrue(args.restart)
+        self.assertEqual('mybox', args.name)
+
     def test_default_name_from_dir(self):
         """Test that default name comes from current directory"""
         args = cmdline.parse_args(['-n', 'cc'])
@@ -4015,6 +4059,17 @@ class TestCcSubcommand(TestBase):  # pylint: disable=R0904
             self.assertNotIn('lxc delete', output)
             self.assertIn('test-cc', output)
             self.assertNotIn('--continue', output)
+            # /tmp/b mount
+            self.assertIn('tmpb', output)
+            self.assertIn('path=/tmp/b', output)
+            # uman env written and sourced
+            self.assertIn('.uman_env', output)
+            self.assertIn('.bashrc', output)
+            self.assertIn('.profile', output)
+            # Session logging via script
+            self.assertIn('script -q -c', output)
+            self.assertIn('Logging to', output)
+            self.assertIn('uman-logs/test-cc/', output)
         finally:
             os.path.expanduser = orig_expanduser
 
@@ -4047,6 +4102,24 @@ class TestCcSubcommand(TestBase):  # pylint: disable=R0904
             output = out.getvalue()
             self.assertIn('lxc init', output)
             self.assertIn('lxc delete', output)
+        finally:
+            os.path.expanduser = orig_expanduser
+
+    def test_dry_run_restart(self):
+        """Test that -R passes through in dry run"""
+        args = cmdline.parse_args(['-n', 'cc', '-R', 'test-cc'])
+
+        tools.write_file(self.config_file,
+                         b'[DEFAULT]\nbuild_dir = /tmp/b\n')
+        orig_expanduser = os.path.expanduser
+        os.path.expanduser = lambda p: p.replace('~', self.test_dir)
+        try:
+            with terminal.capture() as (out, _):
+                cc.run(args)
+            output = out.getvalue()
+            # In dry run, restart has no effect (container doesn't exist)
+            # but the normal start should still appear
+            self.assertIn('lxc start', output)
         finally:
             os.path.expanduser = orig_expanduser
 
@@ -4091,6 +4164,28 @@ class TestCcSubcommand(TestBase):  # pylint: disable=R0904
     def test_delete_no_name(self):
         """Test delete without a name fails"""
         args = cmdline.parse_args(['cc', '-d'])
+        with terminal.capture() as (_, _):
+            res = cc.run(args)
+        self.assertEqual(1, res)
+
+    def test_cc_parsing_stop(self):
+        """Test cc -S flag"""
+        args = cmdline.parse_args(['cc', '-S', 'mybox'])
+        self.assertTrue(args.stop)
+        self.assertEqual('mybox', args.name)
+
+    def test_stop(self):
+        """Test stop runs lxc stop"""
+        args = cmdline.parse_args(['-n', 'cc', '-S', 'mybox'])
+        with terminal.capture() as (out, _):
+            res = cc.run(args)
+        self.assertEqual(0, res)
+        self.assertIn('lxc stop', out.getvalue())
+        self.assertIn('mybox', out.getvalue())
+
+    def test_stop_no_name(self):
+        """Test stop without a name fails"""
+        args = cmdline.parse_args(['cc', '-S'])
         with terminal.capture() as (_, _):
             res = cc.run(args)
         self.assertEqual(1, res)
@@ -4218,6 +4313,95 @@ class TestCcSubcommand(TestBase):  # pylint: disable=R0904
             cc.exec_cmd = orig_exec
             os.path.expanduser = orig_expanduser
 
+    def test_get_log_path(self):
+        """Test get_log_path creates directory and returns expected path"""
+        orig_expanduser = os.path.expanduser
+        os.path.expanduser = lambda p: p.replace('~', self.test_dir)
+        try:
+            path = cc.get_log_path('mybox')
+            self.assertTrue(path.startswith(
+                os.path.join(self.test_dir, 'files/dev/uman-logs/mybox/')))
+            self.assertRegex(os.path.basename(path),
+                             r'log-\d{2}\.\d{2}[a-z]{3}\.\d{2}-\d{6}\.log')
+            self.assertTrue(os.path.isdir(os.path.dirname(path)))
+        finally:
+            os.path.expanduser = orig_expanduser
+
+
+@unittest.skipUnless(shutil.which('lxc'), 'LXC not available')
+class TestCcFunctional(unittest.TestCase):
+    """Functional tests using a real LXC container"""
+
+    NAME = 'uman-ftest'
+
+    @classmethod
+    def setUpClass(cls):
+        uman_dir = cc.get_uman_dir()
+        uboot_tools = os.path.realpath(os.path.expanduser(
+            os.environ.get('UBOOT_TOOLS', '~/u/tools')))
+        cc.create_container(cls.NAME, 'noble')
+        cc.add_mount(cls.NAME, 'uman', uman_dir, uman_dir)
+        cc.add_mount(cls.NAME, 'utools', uboot_tools,
+                     f'{cc.UBUNTU_HOME}/u/tools')
+        cc.lxc('start', cls.NAME)
+        cc.wait_for_user(cls.NAME)
+        cc.setup_container(cls.NAME)
+        cc.setup_uman(cls.NAME)
+
+    @classmethod
+    def tearDownClass(cls):
+        cc.delete_container(cls.NAME)
+
+    def lxc_shell(self, cmd, mode):
+        """Run a command inside the container in a given shell mode
+
+        Args:
+            cmd (str): Shell command string
+            mode (str): 'interactive' or 'claude'
+
+        Returns:
+            str: Combined stdout+stderr
+        """
+        if mode == 'interactive':
+            args = ['lxc', 'exec', self.NAME, '--', 'sudo', '-iu',
+                    'ubuntu', 'bash', '-ic', cmd]
+        else:
+            args = ['lxc', 'exec', self.NAME, '--', 'sudo', '-iu',
+                    'ubuntu', 'bash', '-lc', f'bash -c {cmd!r}']
+        result = subprocess.run(args, capture_output=True, check=False,
+                                text=True)
+        return result.stdout + result.stderr
+
+    def test_interactive_rf(self):
+        """Test rf symlink is available in interactive mode"""
+        out = self.lxc_shell('type rf', 'interactive')
+        self.assertIn('rf is /home/ubuntu/.local/bin/rf', out)
+
+    def test_interactive_um_func(self):
+        """Test um shell function is available in interactive mode"""
+        out = self.lxc_shell('type um', 'interactive')
+        self.assertIn('um is a function', out)
+
+    def test_interactive_alias(self):
+        """Test am alias is available in interactive mode"""
+        out = self.lxc_shell('type am', 'interactive')
+        self.assertIn('am is aliased to', out)
+
+    def test_claude_rf(self):
+        """Test rf symlink is available in claude mode"""
+        out = self.lxc_shell('type rf', 'claude')
+        self.assertIn('rf is /home/ubuntu/.local/bin/rf', out)
+
+    def test_claude_um_func(self):
+        """Test um shell function is available in claude mode"""
+        out = self.lxc_shell('type um', 'claude')
+        self.assertIn('um is a function', out)
+
+    def test_claude_bash_env(self):
+        """Test BASH_ENV is set to .uman_env in claude mode"""
+        out = self.lxc_shell('echo $BASH_ENV', 'claude')
+        self.assertIn('/home/ubuntu/.uman_env', out)
+
 
 class TestSetupSubcommand(TestBase):
     """Tests for the setup subcommand"""
@@ -4272,6 +4456,7 @@ class TestSetupSubcommand(TestBase):
             res = setup.do_setup(args)
         self.assertEqual(0, res)
         output = out.getvalue()
+        self.assertIn('efi', output)
         self.assertIn('gcc', output)
         self.assertIn('qemu', output)
         self.assertIn('opensbi', output)
@@ -4293,6 +4478,33 @@ class TestSetupSubcommand(TestBase):
             res = setup.do_setup(args)
         self.assertEqual(1, res)
         self.assertIn('Unknown component', err.getvalue())
+
+    def test_setup_efi_all_installed(self):
+        """Test setup_efi when all packages are installed"""
+        args = argparse.Namespace(dry_run=False, force=False)
+        with mock.patch('uman_pkg.setup.command.output'):
+            with terminal.capture() as (out, _):
+                res = setup.setup_efi(args)
+        self.assertEqual(0, res)
+        self.assertIn('All EFI packages are installed', out.getvalue())
+
+    def test_setup_efi_dry_run(self):
+        """Test setup_efi in dry-run mode with missing packages"""
+        def mock_output(*cmd):
+            """Mock command.output to simulate missing qemu-efi-riscv64"""
+            if 'qemu-efi-riscv64' in cmd:
+                result = command.CommandResult(return_code=1, stdout='',
+                                                stderr='', exception=None)
+                raise command.CommandExc('Package not found', result)
+
+        args = argparse.Namespace(dry_run=True, force=False)
+        with mock.patch('uman_pkg.setup.command.output', mock_output):
+            with terminal.capture() as (out, _):
+                res = setup.setup_efi(args)
+        self.assertEqual(0, res)
+        output = out.getvalue()
+        self.assertIn('Would run:', output)
+        self.assertIn('qemu-efi-riscv64', output)
 
     def test_setup_qemu_all_installed(self):
         """Test setup_qemu when all packages are installed"""
@@ -4534,6 +4746,7 @@ More text
         output = out.getvalue()
         self.assertIn(setup.UM_FUNC, output)
         self.assertIn('eval "$(um git -a)"', output)
+        self.assertIn('.uman_env', output)
 
     def test_setup_aliases_shell_hint_dry_run(self):
         """Test setup_aliases shows shell hint in dry-run mode too"""
@@ -4544,6 +4757,7 @@ More text
         output = out.getvalue()
         self.assertIn(setup.UM_FUNC, output)
         self.assertIn('eval "$(um git -a)"', output)
+        self.assertIn('.uman_env', output)
 
     def test_setup_aliases_quiet(self):
         """Test setup_aliases suppresses notice output in quiet mode"""
@@ -5737,7 +5951,8 @@ test_fs.py::TestFs::test_ext4
                 return_code=0, stdout='', stderr='')
             args = argparse.Namespace(board='sandbox', build_dir=None,
                                       test_spec=None, build=False, flattree_too=False, output_dir=None)
-            cmdpy.collect_tests(args)
+            with mock.patch('uman_pkg.cmdpy.has_no_full', return_value=True):
+                cmdpy.collect_tests(args)
 
         cmd = mock_run.call_args[0][0][0]
         self.assertIn('--no-full', cmd)
@@ -5756,19 +5971,18 @@ test_fs.py::TestFs::test_ext4
         self.assertNotIn('--no-full', cmd)
 
     def test_collect_tests_no_full_unsupported(self):
-        """Test collect_tests detects --no-full not supported"""
+        """Test collect_tests omits --no-full when tree lacks support"""
         with mock.patch.object(command, 'run_pipe') as mock_run:
             mock_run.return_value = mock.Mock(
-                return_code=4, stdout='',
-                stderr='error: unrecognized arguments: --no-full')
+                return_code=0, stdout='', stderr='')
             args = argparse.Namespace(board='sandbox', build_dir=None,
-                                      test_spec=None, build=False, flattree_too=False, output_dir=None)
-            with terminal.capture() as (_, err):
-                result = cmdpy.collect_tests(args)
+                                      test_spec=None, build=False,
+                                      flattree_too=False, output_dir=None)
+            with mock.patch('uman_pkg.cmdpy.has_no_full', return_value=False):
+                cmdpy.collect_tests(args)
 
-        self.assertIsNone(result)
-        self.assertIn('--no-full', err.getvalue())
-        self.assertIn('use -f', err.getvalue())
+        cmd = mock_run.call_args[0][0][0]
+        self.assertNotIn('--no-full', cmd)
 
     def test_pollute_run_no_full_flag(self):
         """Test pollute_run adds --no-full when full=False"""
@@ -5782,9 +5996,10 @@ test_fs.py::TestFs::test_ext4
             return proc
 
         with mock.patch('subprocess.Popen', mock_popen):
-            args = argparse.Namespace(board='sandbox', build_dir=None,
-                                      lto=False, flattree_too=False, output_dir=None)
-            cmdpy.pollute_run([], 'test_target', args, {})
+            with mock.patch('uman_pkg.cmdpy.has_no_full', return_value=True):
+                args = argparse.Namespace(board='sandbox', build_dir=None,
+                                          lto=False, flattree_too=False, output_dir=None)
+                cmdpy.pollute_run([], 'test_target', args, {})
 
         self.assertIn('--no-full', captured_cmd)
 

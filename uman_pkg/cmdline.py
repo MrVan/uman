@@ -84,6 +84,10 @@ def add_claude_code_subparser(subparsers):
                     help='Rename the named container')
     cc.add_argument('-e', '--ephemeral', action='store_true',
                     help='Use a random name and delete on exit')
+    cc.add_argument('-R', '--restart', action='store_true',
+                    help='Restart the container before launching')
+    cc.add_argument('-S', '--stop', action='store_true',
+                    help='Stop a running container')
     cc.add_argument('-l', '--list', action='store_true',
                     dest='list_containers',
                     help='List existing uman containers with project paths')
@@ -378,7 +382,7 @@ def add_git_subparser(subparsers):
         'arg', nargs='?',
         help='Commit count (for gr/rf), patch number (for rp/rn), or ref (for sd)')
     git.add_argument(
-        'extra', nargs='*',
+        'extra', nargs=argparse.REMAINDER,
         help='Additional arguments (e.g., file paths for rd)')
     return git
 
@@ -463,17 +467,22 @@ def parse_args(argv=None, prog_name=None):
         prog_name = sys.argv[0] if sys.argv else ''
     invoked_as = os.path.basename(prog_name)
     if invoked_as in get_git_action_names():
-        # Separate flags (and their values) from positional args
-        # git subparser expects: git [FLAGS] action [ARGS]
+        # Extract only known uman/git flags; pass everything else through
+        # as positional args after '--' so argparse doesn't consume them
+        known_flags = {'-D', '--debug', '-n', '--dry-run',
+                       '-q', '--quiet', '-v', '--verbose',
+                       '-a', '--aliases'}
+        value_flags = {'-u', '--upstream'}
         flags = []
         args_list = []
         i = 0
         while i < len(argv):
             arg = argv[i]
-            if arg.startswith('-'):
+            if arg in known_flags:
                 flags.append(arg)
-                # If this flag takes a value, include the next arg
-                if i + 1 < len(argv) and not argv[i + 1].startswith('-'):
+            elif arg in value_flags:
+                flags.append(arg)
+                if i + 1 < len(argv):
                     i += 1
                     flags.append(argv[i])
             else:

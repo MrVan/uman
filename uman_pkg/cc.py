@@ -11,8 +11,10 @@ containers for running Claude Code.
 import os
 import random
 import string
+import time
 
 # pylint: disable=import-error
+from u_boot_pylib import tools
 from u_boot_pylib import tout
 
 from uman_pkg import settings
@@ -27,6 +29,26 @@ PROJECT_DEST = f'{UBUNTU_HOME}/project'
 
 # Default packages to install in containers
 DEFAULT_PACKAGES = 'build-essential pylint'
+
+
+def get_log_path(name):
+    """Construct a timestamped log file path for a container session
+
+    Creates the directory structure if it doesn't exist.
+
+    Args:
+        name (str): Container name
+
+    Returns:
+        str: Path like ~/files/dev/uman-logs/<name>/<year>/<mon>/log-...log
+    """
+    now = time.localtime()
+    log_dir = os.path.expanduser(
+        f'~/files/dev/uman-logs/{name}/{now.tm_year}'
+        f'/{time.strftime("%b", now)}')
+    os.makedirs(log_dir, exist_ok=True)
+    fname = time.strftime('log-%y.%m%b.%d-%H%M%S.log', now).lower()
+    return os.path.join(log_dir, fname)
 
 
 def get_uman_dir():
@@ -242,7 +264,7 @@ def has_mount(name, mount_name):
     return result is not None and result.return_code == 0
 
 
-def add_mount(name, mount_name, source, path, dry_run=False):
+def add_mount(name, mount_name, source, path, dry_run=False, shift=False):
     """Add a disk device to the container if not already present
 
     Args:
@@ -251,11 +273,19 @@ def add_mount(name, mount_name, source, path, dry_run=False):
         source (str): Host path
         path (str): Container path
         dry_run (bool): If True, just show command
+        shift (bool): If True, use idmapped mount for uid/gid
+            translation so container root can access host-owned files
     """
     if not dry_run and has_mount(name, mount_name):
+        if shift:
+            lxc('config', 'device', 'set', name, mount_name,
+                'shift', 'true')
         return
+    args = [f'source={source}', f'path={path}']
+    if shift:
+        args.append('shift=true')
     lxc('config', 'device', 'add', '-q', name, mount_name, 'disk',
-        f'source={source}', f'path={path}', dry_run=dry_run)
+        *args, dry_run=dry_run)
 
 
 def wait_for_user(name, dry_run=False):
@@ -268,7 +298,6 @@ def wait_for_user(name, dry_run=False):
     if dry_run:
         tout.notice('# wait for ubuntu user')
         return
-    import time  # pylint: disable=import-outside-toplevel
     while True:
         result = exec_cmd(
             ['lxc', 'exec', name, '--', 'id', '-u', 'ubuntu'],
@@ -306,8 +335,7 @@ def setup_container(name, dry_run=False):
     # Set timezone to match host
     tz_file = '/etc/timezone'
     if os.path.exists(tz_file):
-        with open(tz_file, encoding='utf-8') as inf:
-            tzone = inf.read().strip()
+        tzone = tools.read_file(tz_file, binary=False).strip()
         lxc_exec(name,
                  f'ln -sf /usr/share/zoneinfo/{tzone} /etc/localtime && '
                  f'echo {tzone} > /etc/timezone',
@@ -350,7 +378,11 @@ def install_claude(name, dry_run=False):
 
 
 def setup_uman(name, uboot_tools=None, dry_run=False):
-    """Set up uman aliases and bashrc inside the container
+    """Set up uman aliases and environment inside the container
+
+    Writes ~/.uman_env with PATH, UBOOT_TOOLS, the um() wrapper and
+    eval aliases, then sources it from ~/.bashrc and ~/.profile so it
+    is available in interactive, login and non-interactive shells.
 
     Args:
         name (str): Container name
@@ -364,27 +396,42 @@ def setup_uman(name, uboot_tools=None, dry_run=False):
     # host-mounted ~/bin whose symlinks use host-specific paths)
     uman_dir = get_uman_dir()
     um_path = os.path.join(uman_dir, 'um')
+    uman_bin = os.path.join(uman_dir, 'uman_pkg', 'uman')
+    lxc_exec(name,
+             f'mkdir -p ~/.local/bin && '
+             f'ln -sf {uman_bin} {um_path} && '
+             f'ln -sf {uman_bin} ~/.local/bin/um',
+             dry_run=dry_run, user='ubuntu')
     setup_cmd = (
         f'export PATH="$HOME/.local/bin:$HOME/bin:$PATH" && '
         f'export UBOOT_TOOLS="{uboot_tools}" && '
         f'{um_path} -q setup aliases -d ~/.local/bin -f')
     lxc_exec(name, setup_cmd, dry_run=dry_run, user='ubuntu')
 
-    # Add uman config to bashrc
-    bashrc_block = (
-        f'\n# uman setup\n'
-        f'export PATH="$HOME/bin:$HOME/.local/bin:$PATH"\n'
+    # Write ~/.uman_env with the full environment block
+    env_block = (
+        '# uman setup — sourced by ~/.bashrc, ~/.profile and BASH_ENV\n'
+        '[ "$_UMAN_ENV_LOADED" = 1 ] && return\n'
+        '_UMAN_ENV_LOADED=1\n'
+        'export PATH="$HOME/bin:$HOME/.local/bin:$PATH"\n'
         f'export UBOOT_TOOLS="{uboot_tools}"\n'
-        f'um() {{ b="$b" USRC="$USRC" command um "$@"; }}\n'
-        f'eval "$(um git -a)"\n')
+        'um() { b="$b" USRC="$USRC" command um "$@"; }\n'
+        'eval "$(um git -a)"\n'
+        'export BASH_ENV=~/.uman_env\n')
 
-    add_cmd = (
-        f"grep -q 'um git -a' ~/.bashrc 2>/dev/null || "
-        f"cat >> ~/.bashrc <<'BASHEOF'{bashrc_block}BASHEOF")
-    lxc_exec(name, add_cmd, dry_run=dry_run, user='ubuntu')
+    write_cmd = f"cat > ~/.uman_env <<'ENVEOF'\n{env_block}ENVEOF"
+    lxc_exec(name, write_cmd, dry_run=dry_run, user='ubuntu')
+
+    # Source from ~/.bashrc (interactive non-login shells)
+    source_line = '[ -f ~/.uman_env ] && . ~/.uman_env'
+    for rcfile in ('~/.bashrc', '~/.profile'):
+        add_cmd = (
+            f"grep -q '.uman_env' {rcfile} 2>/dev/null || "
+            f"echo '{source_line}' >> {rcfile}")
+        lxc_exec(name, add_cmd, dry_run=dry_run, user='ubuntu')
 
 
-def launch_shell(name, shell_command=None, dry_run=False):
+def launch_shell(name, shell_command=None, dry_run=False, log_file=None):
     """Open an interactive shell or run a command in the container
 
     Args:
@@ -392,26 +439,38 @@ def launch_shell(name, shell_command=None, dry_run=False):
         shell_command (str or None): Command to run, or None for
             interactive shell
         dry_run (bool): If True, just show command
+        log_file (str or None): Path to log file for session recording
     """
     shell_cmd = shell_command or 'exec bash'
     cmd = ['lxc', 'exec', name, '--', 'sudo', '-iu', 'ubuntu',
            'bash', '-ic', f'cd {PROJECT_DEST} && {shell_cmd}']
-    exec_cmd(cmd, dry_run, capture=False)
+    exec_cmd(cmd, dry_run, capture=False, log_file=log_file)
 
 
-def launch_claude(name, cont=False, dry_run=False):
+def launch_claude(name, cont=False, dry_run=False, log_file=None):
     """Launch Claude Code in the container
 
     Args:
         name (str): Container name
         cont (bool): If True, continue the most recent conversation
         dry_run (bool): If True, just show command
+        log_file (str or None): Path to log file for session recording
     """
     flag = ' --continue' if cont else ''
     cmd = ['lxc', 'exec', name, '--', 'sudo', '-iu', 'ubuntu', 'bash', '-ic',
            f'cd {PROJECT_DEST} && claude --dangerously-skip-permissions'
            f'{flag}']
-    exec_cmd(cmd, dry_run, capture=False)
+    exec_cmd(cmd, dry_run, capture=False, log_file=log_file)
+
+
+def stop_container(name, dry_run=False):
+    """Stop a running container
+
+    Args:
+        name (str): Container name
+        dry_run (bool): If True, just show command
+    """
+    lxc('stop', name, dry_run=dry_run)
 
 
 def delete_container(name, dry_run=False):
@@ -503,6 +562,20 @@ def add_all_mounts(name, project_src, dry_run=False):
     if git_mount:
         add_mount(name, *git_mount, dry_run)
 
+    # Mount container /tmp/b to host /tmp/<name>/b for easy access
+    tmp_dir = f'/tmp/{name}/b'
+    os.makedirs(tmp_dir, exist_ok=True)
+    new_tmpb = not dry_run and not has_mount(name, 'tmpb')
+    add_mount(name, 'tmpb', tmp_dir, '/tmp/b', dry_run)
+    if new_tmpb and container_status(name) == 'RUNNING':
+        tout.notice(
+            f'Added /tmp/b mount; activate with: uman cc -R {name}')
+
+    pbuilder = '/var/cache/pbuilder'
+    if os.path.isdir(pbuilder):
+        add_mount(name, 'pbuilder', pbuilder, pbuilder, dry_run,
+                  shift=True)
+
     for mname, source, dest in get_config_mounts():
         add_mount(name, mname, source, dest, dry_run)
 
@@ -543,7 +616,7 @@ def show_containers():
     return 0
 
 
-def run(args):  # pylint: disable=too-many-locals,too-many-branches
+def run(args):  # pylint: disable=too-many-locals,too-many-branches,too-many-statements
     """Main entry point for the cc subcommand
 
     Creates a container, sets it up, and launches Claude Code or a shell.
@@ -570,6 +643,13 @@ def run(args):  # pylint: disable=too-many-locals,too-many-branches
             tout.error('Container name required for --rename')
             return 1
         rename_container(args.name, args.rename, args.dry_run)
+        return 0
+
+    if args.stop:
+        if not args.name:
+            tout.error('Container name required for --stop')
+            return 1
+        stop_container(args.name, args.dry_run)
         return 0
 
     dry_run = args.dry_run
@@ -609,6 +689,14 @@ def run(args):  # pylint: disable=too-many-locals,too-many-branches
             create_container(name, base, dry_run)
 
         add_all_mounts(name, project_src, dry_run)
+
+        if args.restart and existed:
+            status = container_status(name)
+            if not dry_run and status == 'RUNNING':
+                tout.notice('Stopping container for restart')
+                lxc('stop', name)
+            existed = False
+
         ensure_running(name, existed, dry_run)
 
         # Wait for user and set up (idempotent operations)
@@ -619,11 +707,13 @@ def run(args):  # pylint: disable=too-many-locals,too-many-branches
         setup_uman(name, uboot_tools, dry_run)
 
         # Launch
+        log_file = get_log_path(name)
+        tout.notice(f'Logging to {log_file}')
         if args.shell:
             shell_cmd = args.shell if args.shell is not True else None
-            launch_shell(name, shell_cmd, dry_run)
+            launch_shell(name, shell_cmd, dry_run, log_file)
         else:
-            launch_claude(name, args.cont, dry_run)
+            launch_claude(name, args.cont, dry_run, log_file)
 
     finally:
         # Only delete ephemeral containers that we created

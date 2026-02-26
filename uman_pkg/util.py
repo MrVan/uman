@@ -58,7 +58,7 @@ def setup_uboot_dir():
     return uboot_dir
 
 
-def exec_cmd(cmd, dry_run=False, env=None, capture=True):
+def exec_cmd(cmd, dry_run=False, env=None, capture=True, log_file=None):
     """Run a command or show what would be run in dry-run mode
 
     Args:
@@ -67,10 +67,15 @@ def exec_cmd(cmd, dry_run=False, env=None, capture=True):
         env (dict): Optional environment variables to set
         capture (bool): Whether to capture output (default True). When False,
             runs interactively with proper Ctrl+C handling.
+        log_file (str or None): If set and capture is False, wrap the
+            command with script(1) to record the session to this file.
 
     Returns:
         CommandResult or None: Result if run, None if dry-run
     """
+    if log_file and not capture:
+        cmd = ['script', '-q', '-c', shlex.join(cmd), log_file]
+
     if dry_run:
         # Build command with env vars that differ from current environment
         env_prefix = ''

@@ -17,11 +17,31 @@ from u_boot_pylib import command
 from u_boot_pylib import tools
 from u_boot_pylib import tout
 
-from uman_pkg.util import git, git_output, git_output_quiet
+from uman_pkg.util import exec_cmd, git, git_output, git_output_quiet
+
+
+def _count_breaks(path, fname):
+    """Count 'break' lines in a rebase file
+
+    Args:
+        path (str): Rebase directory path
+        fname (str): Filename to read (e.g. 'done', 'git-rebase-todo')
+
+    Returns:
+        int: Number of lines starting with 'break'
+    """
+    fpath = os.path.join(path, fname)
+    if not os.path.exists(fpath):
+        return 0
+    return sum(1 for ln in tools.read_file(fpath, binary=False).splitlines()
+               if ln.strip().startswith('break'))
 
 
 def get_rebase_position():
     """Get current position in rebase (e.g., "3/12")
+
+    Subtracts any 'break' entries injected by rn during conflict
+    resolution, so the position reflects only real commits.
 
     Returns:
         str: Position string like "3/12", or empty string if not available
@@ -33,10 +53,14 @@ def get_rebase_position():
                 msgnum_file = os.path.join(path, 'msgnum')
                 end_file = os.path.join(path, 'end')
                 if os.path.exists(msgnum_file) and os.path.exists(end_file):
-                    with open(msgnum_file, encoding='utf-8') as inf:
-                        msgnum = inf.read().strip()
-                    with open(end_file, encoding='utf-8') as inf:
-                        end = inf.read().strip()
+                    msgnum = int(
+                        tools.read_file(msgnum_file, binary=False).strip())
+                    end = int(
+                        tools.read_file(end_file, binary=False).strip())
+                    done_breaks = _count_breaks(path, 'done')
+                    todo_breaks = _count_breaks(path, 'git-rebase-todo')
+                    msgnum -= done_breaks
+                    end -= done_breaks + todo_breaks
                     return f'{msgnum}/{end}'
         except (command.CommandExc, OSError):
             pass
@@ -67,8 +91,34 @@ def show_rebase_status(output, return_code=0):
     if return_code:
         match = re.search(r'Could not apply ([0-9a-f]+)\.\.\. (.+)', output)
         if match:
-            tout.notice(f'Rebasing{pos_str} conflict in {match.group(1)}... '
+            if has_conflicts():
+                label = 'conflict in'
+            else:
+                label = 'empty commit'
+            tout.notice(f'Rebasing{pos_str} {label} {match.group(1)}... '
                         f'{match.group(2)}')
+
+
+def show_rb_status():
+    """Show current HEAD and next commit after rb stops at break"""
+    try:
+        head = git_output('rev-parse', '--short', 'HEAD')
+        subject = git_output('log', '-1', '--format=%s')
+        tout.notice(f'At {head}... {subject}')
+    except command.CommandExc:
+        pass
+
+    rebase_dir = get_rebase_dir()
+    if rebase_dir:
+        todo = os.path.join(rebase_dir, 'git-rebase-todo')
+        if os.path.exists(todo):
+            for line in tools.read_file(todo, binary=False).splitlines():
+                line = line.strip()
+                if line and not line.startswith('#'):
+                    parts = line.split(None, 2)
+                    if len(parts) >= 3:
+                        tout.notice(f'Before {parts[1][:10]}... {parts[2]}')
+                    break
 
 
 def seq_edit_env(action, line=1):
@@ -209,7 +259,10 @@ def do_rb(args):
                  dry_run=args.dry_run)
     if result is None:
         return 0
-    show_rebase_status(result.stdout + result.stderr, result.return_code)
+    if result.return_code == 0:
+        show_rb_status()
+    else:
+        show_rebase_status(result.stdout + result.stderr, result.return_code)
     return result
 
 
@@ -1230,14 +1283,41 @@ def do_sl(args):
     return result.return_code
 
 
-def do_co(_args):
+def do_co(args):
     """Checkout (switch branches or restore files)
+
+    Passes through arg and extra to git checkout, e.g.:
+        co -b dock gh/dock  ->  git checkout -b dock gh/dock
 
     Returns:
         int: Exit code from git checkout
     """
-    result = command.run_one('git', 'checkout', capture=False,
-                             raise_on_error=False)
+    cmd = ['git', 'checkout']
+    if args.arg:
+        cmd.append(args.arg)
+    cmd += args.extra
+    result = exec_cmd(cmd, args.dry_run, capture=False)
+    if result is None:
+        return 0
+    return result.return_code
+
+
+def do_gp(args):
+    """Cherry-pick a commit
+
+    Passes through arg and extra to git cherry-pick, e.g.:
+        gp abc123  ->  git cherry-pick abc123
+
+    Returns:
+        int: Exit code from git cherry-pick
+    """
+    cmd = ['git', 'cherry-pick']
+    if args.arg:
+        cmd.append(args.arg)
+    cmd += args.extra
+    result = exec_cmd(cmd, args.dry_run, capture=False)
+    if result is None:
+        return 0
     return result.return_code
 
 
@@ -1288,6 +1368,7 @@ GIT_ACTIONS = [
     GitAction('gci', 'grep-ci', 'Search ci/master log for pattern', do_gci),
     GitAction('gd', 'difftool', 'Show changes using difftool', do_gd),
     GitAction('gdc', 'difftool-cached', 'Show staged changes', do_gdc),
+    GitAction('gp', 'cherry-pick', 'Cherry-pick a commit', do_gp),
     GitAction('gm', 'grep-master', 'Search us/master log for pattern', do_gm),
     GitAction('gn', 'grep-next', 'Search us/next log for pattern', do_gn),
     GitAction('gr', 'git-rebase', 'Start interactive rebase', do_gr),
@@ -1332,6 +1413,7 @@ SIMPLE_ALIASES = {
     'gba': 'git branch -a',
     'gd': 'git difftool',
     'gdc': 'git difftool --cached',
+    'gp': 'git cherry-pick',
     'pe': 'git log --oneline -n10 --decorate',
     'rc': 'git rebase --continue',
     'rs': 'git rebase --skip',

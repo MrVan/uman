@@ -8,6 +8,12 @@ uman - U-Boot Manager
 This is a simple tool to handle common tasks when developing U-Boot,
 including pushing to CI, running tests, and setting up firmware dependencies.
 
+It wraps common git workflows (interactive rebasing, commit checking, diffing)
+into short commands, manages sandbox and QEMU test runs with automatic
+environment setup, and can create LXC containers for isolated Claude Code
+development sessions. Most actions are available as two-letter shell aliases
+for quick access.
+
 Subcommands
 -----------
 
@@ -224,16 +230,38 @@ idempotent setup steps.
 - ``-d, --delete``: Delete the named container
 - ``-e, --ephemeral``: Use a random name and delete on exit
 - ``-l, --list``: List existing uman containers with project paths
-- ``-s, --shell``: Open interactive shell instead of Claude
+- ``-r, --rename NEW``: Rename the named container
+- ``-R, --restart``: Restart the container before launching
+- ``-S, --stop``: Stop a running container
+- ``-s, --shell [CMD]``: Open interactive shell, or run CMD in container
+
+**Console Logging**:
+
+Every session (both Claude and shell) is recorded using ``script(1)`` to a
+timestamped log file::
+
+    ~/files/dev/uman-logs/<name>/<year>/<month>/log-YY.MMmmm.DD-HHMMSS.log
+
+For example: ``~/files/dev/uman-logs/paperman/2026/Feb/log-26.02feb.21-143022.log``
+
+The log path is printed at launch. The ``-q`` flag suppresses script's own
+start/done messages so only the session content is captured.
 
 **Essential Mounts** (always added):
 
 - ``datadir``: Current directory to ``/home/ubuntu/project``
 - ``claudejson``: ``~/.claude.json`` for Claude credentials
 - ``claudedir``: ``~/.claude`` for Claude configuration
+- ``claudeproj``: ``~/.claude/cc/<name>/`` to container's ``~/.claude/projects``
+  (scopes ``--continue`` per container)
 - ``gitconfig``: ``~/.gitconfig`` for git identity
 - ``hostbin``: ``~/bin`` for host scripts
 - ``uman``: Uman install directory (so ``~/bin`` symlinks work)
+- ``uboottools``: U-Boot tools directory (``$UBOOT_TOOLS`` or ``~/u/tools``)
+- ``tmpb``: Container ``/tmp/b`` to ``/tmp/<name>/b`` on the host
+- ``buildman``: ``~/.buildman`` (if present)
+- ``toolchains``: ``~/.buildman-toolchains`` (if present)
+- ``pbuilder``: ``/var/cache/pbuilder`` (if present), with uid/gid shift
 - ``dotgit``: If ``.git`` is a symlink, the real target is mounted
 
 **Configuration** (``~/.uman``):
@@ -279,6 +307,7 @@ making it easier to step through commits during development.
 - ``gci`` / ``grep-ci`` PATTERN: Search ci/master log for pattern
 - ``gd`` / ``difftool``: Show changes using difftool
 - ``gdc`` / ``difftool-cached``: Show staged changes using difftool
+- ``gp`` / ``cherry-pick``: Cherry-pick a commit
 - ``gm`` / ``grep-master`` PATTERN: Search us/master log for pattern
 - ``gn`` / ``grep-next`` PATTERN: Search us/next log for pattern
 - ``gr`` / ``git-rebase`` [N]: Open interactive rebase editor (to upstream or HEAD~N)
@@ -288,11 +317,13 @@ making it easier to step through commits during development.
 - ``pe`` / ``peek``: Show last 10 commits (git log --oneline -n10 --decorate)
 - ``pm`` / ``patch-merge``: Apply patch from rebase-apply directory
 - ``ra`` / ``rebase-abort``: Abort the current rebase (stashes changes, shows recovery info)
-- ``rb`` / ``rebase-beginning``: Rebase from beginning - stops at first commit for editing
+- ``rb`` / ``rebase-beginning``: Rebase from beginning - stops at first commit for editing;
+  shows the current and next commit
 - ``rc`` / ``rebase-continue``: Continue rebase (git rebase --continue)
 - ``rd`` / ``rebase-diff`` [N] [FILES...]: Show diff against the Nth next commit (default: 1)
 - ``re`` / ``rebase-edit``: Amend the current commit (opens editor)
-- ``rf`` / ``rebase-first`` [N]: Rebase last N commits, stopping at first for editing
+- ``rf`` / ``rebase-first`` [N]: Rebase last N commits, stopping at first for editing;
+  refuses to start with unstaged changes
 - ``rn`` / ``rebase-next`` [N]: Continue rebase to next commit (see below for details)
 - ``rp`` / ``rebase-patch`` N: Rebase to upstream, stop at patch N for editing (0 = first)
 - ``rs`` / ``rebase-skip``: Skip current commit (git rebase --skip)
@@ -308,8 +339,11 @@ making it easier to step through commits during development.
 
 The ``rn`` command behaves differently depending on context:
 
-- At an edit point: sets the next (or Nth) commit to 'edit' and continues
+- At an edit point: amends any staged changes into HEAD, then sets the next
+  (or Nth) commit to 'edit' and continues
 - After resolving a conflict: continues and stops at the current commit
+- With an empty commit (already upstream): reports it and stops
+- With unstaged changes (and nothing staged): errors out
 - With unresolved conflicts: errors out (resolve conflicts first)
 
 **Examples**::
@@ -702,12 +736,12 @@ The ``build`` command (alias ``b``) builds U-Boot for a specified board::
     # Bisect to find first commit that breaks the build
     uman build sandbox --bisect
 
-    # Build with verbose make output
-    uman build sandbox -a V=1
+    # Adjust Kconfig setting
+    uman build sandbox -a CONFIG_TRACE
 
 **Options**:
 
-- ``-a, --make-arg ARG``: Pass argument to make (can use multiple times)
+- ``-a, --adjust-cfg CFG``: Adjust Kconfig setting (can use multiple times)
 - ``-E, --werror``: Treat warnings as errors (sets KCFLAGS=-Werror)
 - ``--fail-on-warning``: Fail if build produces warnings
 - ``-f, --force-reconfig``: Force reconfiguration
@@ -740,6 +774,8 @@ various architectures::
     uman setup -l
 
     # Install specific component
+    uman setup efi
+    uman setup gcc
     uman setup qemu
     uman setup opensbi
     uman setup tfa
@@ -764,6 +800,10 @@ various architectures::
 
 - ``aliases``: Create symlinks for git action commands (rf, rc, rd, etc.) and
   cg (config grep) in a directory. See `Symlink Invocation`_ above.
+- ``efi``: Install QEMU EFI firmware packages (OVMF for x86/IA-32,
+  qemu-efi for ARM, ARM64 and RISC-V). Uses ``apt-get`` with sudo.
+- ``gcc``: Install GCC cross-compilers and build dependencies. Uses
+  ``apt-get`` with sudo.
 - ``qemu``: Install QEMU packages for all architectures (arm, riscv, x86, ppc,
   xtensa). Uses ``apt-get`` with sudo.
 - ``opensbi``: Download pre-built OpenSBI firmware for RISC-V (both 32-bit and

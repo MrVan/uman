@@ -4168,6 +4168,28 @@ class TestCcSubcommand(TestBase):  # pylint: disable=R0904
             res = cc.run(args)
         self.assertEqual(1, res)
 
+    def test_cc_parsing_stop(self):
+        """Test cc -S flag"""
+        args = cmdline.parse_args(['cc', '-S', 'mybox'])
+        self.assertTrue(args.stop)
+        self.assertEqual('mybox', args.name)
+
+    def test_stop(self):
+        """Test stop runs lxc stop"""
+        args = cmdline.parse_args(['-n', 'cc', '-S', 'mybox'])
+        with terminal.capture() as (out, _):
+            res = cc.run(args)
+        self.assertEqual(0, res)
+        self.assertIn('lxc stop', out.getvalue())
+        self.assertIn('mybox', out.getvalue())
+
+    def test_stop_no_name(self):
+        """Test stop without a name fails"""
+        args = cmdline.parse_args(['cc', '-S'])
+        with terminal.capture() as (_, _):
+            res = cc.run(args)
+        self.assertEqual(1, res)
+
     def test_container_exists(self):
         """Test container_exists with missing container"""
         command.TEST_RESULT = command.CommandResult(

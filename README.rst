@@ -225,6 +225,7 @@ idempotent setup steps.
 - ``-e, --ephemeral``: Use a random name and delete on exit
 - ``-l, --list``: List existing uman containers with project paths
 - ``-R, --restart``: Restart the container before launching
+- ``-S, --stop``: Stop a running container
 - ``-s, --shell``: Open interactive shell instead of Claude
 
 **Console Logging**:

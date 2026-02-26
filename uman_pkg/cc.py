@@ -463,6 +463,16 @@ def launch_claude(name, cont=False, dry_run=False, log_file=None):
     exec_cmd(cmd, dry_run, capture=False, log_file=log_file)
 
 
+def stop_container(name, dry_run=False):
+    """Stop a running container
+
+    Args:
+        name (str): Container name
+        dry_run (bool): If True, just show command
+    """
+    lxc('stop', name, dry_run=dry_run)
+
+
 def delete_container(name, dry_run=False):
     """Force-delete a container
 
@@ -633,6 +643,13 @@ def run(args):  # pylint: disable=too-many-locals,too-many-branches,too-many-sta
             tout.error('Container name required for --rename')
             return 1
         rename_container(args.name, args.rename, args.dry_run)
+        return 0
+
+    if args.stop:
+        if not args.name:
+            tout.error('Container name required for --stop')
+            return 1
+        stop_container(args.name, args.dry_run)
         return 0
 
     dry_run = args.dry_run

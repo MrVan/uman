@@ -5248,6 +5248,25 @@ Result: SKIP dm_test_fourth
         self.assertEqual(0, res.failed)
         self.assertEqual(1, res.skipped)
 
+    def test_parse_summary_basic(self):
+        """Test parse_summary with standard output"""
+        output = 'Tests run: 540, 11595 ms, average: 21 ms, failures: 7'
+        res = cmdtest.parse_summary(output)
+        self.assertEqual(533, res.passed)
+        self.assertEqual(7, res.failed)
+        self.assertEqual(0, res.skipped)
+
+    def test_parse_summary_no_failures(self):
+        """Test parse_summary with no failures"""
+        output = 'Tests run: 1, 4 ms, average: 4 ms, failures: 0'
+        res = cmdtest.parse_summary(output)
+        self.assertEqual(1, res.passed)
+        self.assertEqual(0, res.failed)
+
+    def test_parse_summary_empty(self):
+        """Test parse_summary with no summary line"""
+        self.assertIsNone(cmdtest.parse_summary(''))
+
     def test_parse_results_empty(self):
         """Test parse_results with empty output returns None"""
         self.assertIsNone(cmdtest.parse_results(''))
@@ -5322,7 +5341,6 @@ Result: PASS dm_test_second
         output = '''
 U-Boot banner here
 Missing required argument 'fs_image' for test 'pxe_test_sysboot'
-Tests run: 1, failures: 1
 '''
 
         def mock_run(*_args, **_kwargs):
@@ -5340,6 +5358,26 @@ Tests run: 1, failures: 1
         self.assertIn('No results detected', err.getvalue())
         # Error message should be shown in output
         self.assertIn('Missing required argument', out.getvalue())
+
+    def test_run_tests_parses_summary(self):
+        """Test run_tests uses summary line when -E is unavailable"""
+        output = 'Tests run: 10, 100 ms, average: 10 ms, failures: 2'
+
+        def mock_run(*_args, **_kwargs):
+            return command.CommandResult(return_code=1, stdout=output)
+
+        args = cmdline.parse_args(['test', 'dm'])
+        col = terminal.Color()
+        with mock.patch.object(cmdtest, 'has_emit_result', return_value=False):
+            with mock.patch.object(command, 'run_one', mock_run):
+                with mock.patch.object(cmdtest, 'ensure_dm_init_files',
+                                       return_value=True):
+                    with terminal.capture() as (out, err):
+                        result = cmdtest.run_tests(
+                            '/sb', [('dm', None)], args, col)
+        self.assertEqual(1, result)
+        self.assertIn('8 passed', out.getvalue())
+        self.assertIn('2 failed', out.getvalue())
 
     def test_run_tests_detects_segfault(self):
         """Test run_tests detects segfault (SIGSEGV) and resets terminal"""

@@ -38,6 +38,7 @@ RE_DATA_REL_RO = re.compile(
 # Patterns for parsing test output
 RE_TEST_NAME = re.compile(r'Test:\s*(\S+)')
 RE_RESULT = re.compile(r'Result:\s*(PASS|FAIL|SKIP):?\s+(\S+)')
+RE_SUMMARY = re.compile(r'Tests run:\s*(\d+),.*failures:\s*(\d+)')
 
 # Unit test flags from include/test/test.h
 UTF_FLAT_TREE = 0x08
@@ -543,6 +544,26 @@ def parse_legacy_results(output, show_results=False, col=None):
     return TestCounts(passed, failed, skipped)
 
 
+def parse_summary(output):
+    """Parse 'Tests run:' summary line from test output
+
+    Handles the format: Tests run: N, Xms, average: Xms, failures: N
+
+    Args:
+        output (str): Test output from sandbox
+
+    Returns:
+        TestCounts or None: Counts of passed/failed/skipped, or None if none
+    """
+    for line in output.splitlines():
+        match = RE_SUMMARY.match(line)
+        if match:
+            total = int(match.group(1))
+            failed = int(match.group(2))
+            return TestCounts(total - failed, failed, 0)
+    return None
+
+
 def parse_results(output, show_results=False, col=None):
     """Parse test output to extract results from Result: lines
 
@@ -635,6 +656,8 @@ def run_tests(sandbox, specs, args, col):  # pylint: disable=R0914
     if not res and legacy:
         res = parse_legacy_results(result.stdout, show_results=args.results,
                                    col=col)
+    if not res:
+        res = parse_summary(result.stdout)
 
     # Print output in verbose mode, if there are failures, or no results
     if result.stdout and not args.results:

@@ -522,7 +522,9 @@ def parse_legacy_results(output, show_results=False, col=None):
 
     for line in output.splitlines():
         name_match = RE_TEST_NAME.search(line)
-        name = name_match.group(1) if name_match else None
+        if not name_match:
+            continue
+        name = name_match.group(1)
         lower = line.lower()
 
         if '... ok' in lower:

@@ -5454,6 +5454,57 @@ Missing required argument 'fs_image' for test 'pxe_test_sysboot'
         self.assertEqual(0, result)
         self.assertEqual(('/sb', '-T', '-F', '-c', 'ut -E dm'), cap[0])
 
+    def test_progress_with_emit(self):
+        """Test Progress counts Result: lines with -E"""
+        prog = cmdtest.Progress(emit_result=True)
+        prog.update(None, b'Result: PASS test1\n')
+        prog.update(None, b'Result: FAIL test2\n')
+        prog.update(None, b'Result: SKIP test3\n')
+        prog.update(None, b'Result: PASS test4\n')
+        prog.finish()
+        self.assertEqual(2, prog.passed)
+        self.assertEqual(1, prog.failed)
+        self.assertEqual(1, prog.skipped)
+
+    def test_progress_without_emit(self):
+        """Test Progress counts Test: and failure lines without -E"""
+        prog = cmdtest.Progress(emit_result=False)
+        prog.update(None, b'Test: acpi: acpi.c\n')
+        prog.update(None, b'Test: gpio: gpio.c\n')
+        prog.update(None,
+                     b"Test 'gpio' failed 1 times\nTest: host: host.c\n")
+        prog.finish()
+        self.assertEqual(2, prog.passed)
+        self.assertEqual(1, prog.failed)
+        self.assertEqual(0, prog.skipped)
+
+    def test_progress_partial_lines(self):
+        """Test Progress handles data split across chunks"""
+        prog = cmdtest.Progress(emit_result=True)
+        prog.update(None, b'Result: PA')
+        prog.update(None, b'SS test1\nResult:')
+        prog.update(None, b' FAIL test2\n')
+        prog.finish()
+        self.assertEqual(1, prog.passed)
+        self.assertEqual(1, prog.failed)
+
+    def test_progress_no_output(self):
+        """Test Progress with no test output"""
+        prog = cmdtest.Progress(emit_result=True)
+        prog.finish()
+        self.assertEqual(0, prog.passed)
+        self.assertEqual(0, prog.failed)
+        self.assertEqual(0, prog.skipped)
+
+    def test_progress_last_test_passes(self):
+        """Test Progress counts the last test as passed at finish"""
+        prog = cmdtest.Progress(emit_result=False)
+        prog.update(None, b'Test: foo: foo.c\n')
+        self.assertTrue(prog.pending)
+        prog.finish()
+        self.assertEqual(1, prog.passed)
+        self.assertFalse(prog.pending)
+
     def test_parse_one_test_suite(self):
         """Test parse_one_test with suite name"""
         self.assertEqual(('dm', None), cmdtest.parse_one_test('dm'))

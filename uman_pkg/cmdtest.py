@@ -13,6 +13,7 @@ import os
 import re
 import shlex
 import struct
+import sys
 import time
 
 # pylint: disable=import-error
@@ -39,6 +40,7 @@ RE_DATA_REL_RO = re.compile(
 RE_TEST_NAME = re.compile(r'Test:\s*(\S+)')
 RE_RESULT = re.compile(r'Result:\s*(PASS|FAIL|SKIP):?\s+(\S+)')
 RE_SUMMARY = re.compile(r'Tests run:\s*(\d+),.*failures:\s*(\d+)')
+RE_TEST_FAILED = re.compile(r"Test '.+' failed \d+ times")
 
 # Unit test flags from include/test/test.h
 UTF_FLAT_TREE = 0x08
@@ -599,6 +601,77 @@ def parse_results(output, show_results=False, col=None):
     return TestCounts(passed, failed, skipped)
 
 
+class Progress:
+    """Show live test progress on stderr
+
+    Parses sandbox output as it arrives and displays a running count of
+    passed/failed/skipped tests, updating in place with carriage return.
+
+    With -E (emit_result=True): counts Result: PASS/FAIL/SKIP lines.
+    Without -E: counts Test: lines as passes, detects failure lines like
+    "Test '<name>' failed N times" to adjust the count.
+    """
+
+    def __init__(self, emit_result):
+        self.emit = emit_result
+        self.passed = 0
+        self.failed = 0
+        self.skipped = 0
+        self.buf = ''
+        self.pending = False  # A Test: line seen, not yet resolved
+
+    def _show(self):
+        """Print the progress line, overwriting the previous one"""
+        total = self.passed + self.failed + self.skipped
+        sys.stderr.write(
+            f'\r  {total}: {self.passed} passed, {self.failed} failed, '
+            f'{self.skipped} skipped')
+        sys.stderr.flush()
+
+    def _process_line(self, line):
+        """Process one complete line of output"""
+        if self.emit:
+            match = RE_RESULT.match(line)
+            if match:
+                status = match.group(1)
+                if status == 'PASS':
+                    self.passed += 1
+                elif status == 'FAIL':
+                    self.failed += 1
+                elif status == 'SKIP':
+                    self.skipped += 1
+                self._show()
+        else:
+            if RE_TEST_FAILED.search(line):
+                self.failed += 1
+                self.pending = False
+                self._show()
+            elif RE_TEST_NAME.match(line):
+                if self.pending:
+                    self.passed += 1
+                self.pending = True
+                self._show()
+
+    def update(self, _stream, data):  # pylint: disable=W9016,W9019
+        """output_func callback for command.run_pipe()"""
+        if isinstance(data, (bytes, bytearray)):
+            data = data.decode('utf-8', errors='replace')
+        self.buf += data
+        while '\n' in self.buf:
+            line, self.buf = self.buf.split('\n', 1)
+            self._process_line(line)
+
+    def finish(self):
+        """Close out the progress line"""
+        if not self.emit and self.pending:
+            self.passed += 1
+            self.pending = False
+        if self.passed or self.failed or self.skipped:
+            self._show()
+            sys.stderr.write('\n')
+            sys.stderr.flush()
+
+
 def run_tests(sandbox, specs, args, col):  # pylint: disable=R0914
     """Run sandbox tests
 
@@ -631,9 +704,15 @@ def run_tests(sandbox, specs, args, col):  # pylint: disable=R0914
     env = os.environ.copy()
     env['U_BOOT_PERSISTENT_DATA_DIR'] = persist_dir
 
+    # Show live progress if stderr is a terminal
+    emit = has_emit_result()
+    progress = Progress(emit) if sys.stderr.isatty() else None
+    output_func = progress.update if progress else None
+
     start_time = time.time()
     try:
-        result = command.run_one(*cmd, capture=True, env=env)
+        result = command.run_one(*cmd, capture=True, env=env,
+                                 output_func=output_func)
     except command.CommandExc as exc:
         # Tests may fail but still produce parseable output
         result = exc.result
@@ -642,6 +721,9 @@ def run_tests(sandbox, specs, args, col):  # pylint: disable=R0914
         if not result:
             tout.error(f'Command failed: {exc}')
             return 1
+    finally:
+        if progress:
+            progress.finish()
     elapsed = time.time() - start_time
 
     # Detect old U-Boot that doesn't understand -E or -F flags

@@ -409,6 +409,22 @@ def validate_specs(sandbox, specs):
     return unmatched
 
 
+def has_no_flat():
+    """Check whether the U-Boot tree supports the -F sandbox flag
+
+    Looks for 'noflat' in arch/sandbox/cpu/start.c in the current directory.
+
+    Returns:
+        bool: True if -F is supported
+    """
+    start_c = os.path.join('arch', 'sandbox', 'cpu', 'start.c')
+    try:
+        with open(start_c, encoding='utf-8') as inf:
+            return 'noflat' in inf.read()
+    except OSError:
+        return False
+
+
 def build_ut_cmd(sandbox, specs, full=False, verbose=False, legacy=False,
                  manual=False):
     """Build the sandbox command line for running tests
@@ -427,7 +443,7 @@ def build_ut_cmd(sandbox, specs, full=False, verbose=False, legacy=False,
     cmd = [sandbox, '-T']
 
     # Add -F to skip flat-tree tests (live-tree only) unless full mode
-    if not full:
+    if not full and has_no_flat():
         cmd.append('-F')
 
     # Add -v to sandbox to show test output

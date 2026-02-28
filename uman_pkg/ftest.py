@@ -5056,43 +5056,50 @@ int main(void) { return 0; }
         self.assertIn('dm.test_gpio', stdout)
         self.assertNotIn('env.test_env_basic', stdout)
 
+    @mock.patch.object(cmdtest, 'has_emit_result', return_value=True)
     @mock.patch.object(cmdtest, 'has_no_flat', return_value=True)
-    def test_build_ut_cmd_no_tests(self, _):
+    def test_build_ut_cmd_no_tests(self, *_):
         """Test build_ut_cmd with all specs"""
         cmd = cmdtest.build_ut_cmd('/sb', [('all', None)])
         self.assertEqual(['/sb', '-T', '-F', '-c', 'ut -E all'], cmd)
 
-    def test_build_ut_cmd_full(self):
+    @mock.patch.object(cmdtest, 'has_emit_result', return_value=True)
+    def test_build_ut_cmd_full(self, _):
         """Test build_ut_cmd with full flag (both tree types)"""
         cmd = cmdtest.build_ut_cmd('/sb', [('dm', None)], full=True)
         self.assertEqual(['/sb', '-T', '-c', 'ut -E dm'], cmd)
 
+    @mock.patch.object(cmdtest, 'has_emit_result', return_value=True)
     @mock.patch.object(cmdtest, 'has_no_flat', return_value=True)
-    def test_build_ut_cmd_verbose(self, _):
+    def test_build_ut_cmd_verbose(self, *_):
         """Test build_ut_cmd with verbose flag"""
         cmd = cmdtest.build_ut_cmd('/sb', [('dm', None)], verbose=True)
         self.assertEqual(['/sb', '-T', '-F', '-v', '-c', 'ut -E dm'], cmd)
 
-    def test_build_ut_cmd_all_flags(self):
+    @mock.patch.object(cmdtest, 'has_emit_result', return_value=True)
+    def test_build_ut_cmd_all_flags(self, _):
         """Test build_ut_cmd with all flags"""
         cmd = cmdtest.build_ut_cmd('/sb', [('dm', None)],
                                    full=True, verbose=True)
         self.assertEqual(['/sb', '-T', '-v', '-c', 'ut -E dm'], cmd)
 
+    @mock.patch.object(cmdtest, 'has_emit_result', return_value=True)
     @mock.patch.object(cmdtest, 'has_no_flat', return_value=True)
-    def test_build_ut_cmd_suite(self, _):
+    def test_build_ut_cmd_suite(self, *_):
         """Test build_ut_cmd with suite name"""
         cmd = cmdtest.build_ut_cmd('/sb', [('dm', None)])
         self.assertEqual(['/sb', '-T', '-F', '-c', 'ut -E dm'], cmd)
 
+    @mock.patch.object(cmdtest, 'has_emit_result', return_value=True)
     @mock.patch.object(cmdtest, 'has_no_flat', return_value=True)
-    def test_build_ut_cmd_specific_test(self, _):
+    def test_build_ut_cmd_specific_test(self, *_):
         """Test build_ut_cmd with specific test (suite.test)"""
         cmd = cmdtest.build_ut_cmd('/sb', [('dm', 'test_one')])
         self.assertEqual(['/sb', '-T', '-F', '-c', 'ut -E dm test_one'], cmd)
 
+    @mock.patch.object(cmdtest, 'has_emit_result', return_value=True)
     @mock.patch.object(cmdtest, 'has_no_flat', return_value=True)
-    def test_build_ut_cmd_multiple_tests(self, _):
+    def test_build_ut_cmd_multiple_tests(self, *_):
         """Test build_ut_cmd with multiple test specifications"""
         cmd = cmdtest.build_ut_cmd('/sb', [('dm', None), ('env', None)])
         self.assertEqual(['/sb', '-T', '-F', '-c', 'ut -E dm; ut -E env'], cmd)
@@ -5103,17 +5110,25 @@ int main(void) { return 0; }
         cmd = cmdtest.build_ut_cmd('/sb', [('dm', None)], legacy=True)
         self.assertEqual(['/sb', '-T', '-F', '-c', 'ut dm'], cmd)
 
+    @mock.patch.object(cmdtest, 'has_emit_result', return_value=True)
     @mock.patch.object(cmdtest, 'has_no_flat', return_value=True)
-    def test_build_ut_cmd_manual(self, _):
+    def test_build_ut_cmd_manual(self, *_):
         """Test build_ut_cmd with manual flag"""
         cmd = cmdtest.build_ut_cmd('/sb', [('dm', None)], manual=True)
         self.assertEqual(['/sb', '-T', '-F', '-c', 'ut -E -m dm'], cmd)
 
+    @mock.patch.object(cmdtest, 'has_emit_result', return_value=True)
     @mock.patch.object(cmdtest, 'has_no_flat', return_value=False)
-    def test_build_ut_cmd_no_flat_unsupported(self, _):
+    def test_build_ut_cmd_no_flat_unsupported(self, *_):
         """Test build_ut_cmd omits -F when source tree lacks support"""
         cmd = cmdtest.build_ut_cmd('/sb', [('dm', None)])
         self.assertEqual(['/sb', '-T', '-c', 'ut -E dm'], cmd)
+
+    @mock.patch.object(cmdtest, 'has_emit_result', return_value=False)
+    def test_build_ut_cmd_no_emit_unsupported(self, _):
+        """Test build_ut_cmd omits -E when source tree lacks support"""
+        cmd = cmdtest.build_ut_cmd('/sb', [('dm', None)])
+        self.assertEqual(['/sb', '-T', '-c', 'ut dm'], cmd)
 
     def test_run_tests_basic(self):
         """Test run_tests executes sandbox correctly"""
@@ -5126,13 +5141,14 @@ int main(void) { return 0; }
 
         args = cmdline.parse_args(['test', 'dm'])
         col = terminal.Color()
-        with mock.patch.object(cmdtest, 'has_no_flat', return_value=True):
-            with mock.patch.object(command, 'run_one', mock_run):
-                with mock.patch.object(cmdtest, 'ensure_dm_init_files',
-                                       return_value=True):
-                    with terminal.capture():
-                        result = cmdtest.run_tests(
-                            '/sb', [('dm', None)], args, col)
+        with mock.patch.object(cmdtest, 'has_emit_result', return_value=True):
+            with mock.patch.object(cmdtest, 'has_no_flat', return_value=True):
+                with mock.patch.object(command, 'run_one', mock_run):
+                    with mock.patch.object(cmdtest, 'ensure_dm_init_files',
+                                           return_value=True):
+                        with terminal.capture():
+                            result = cmdtest.run_tests(
+                                '/sb', [('dm', None)], args, col)
         self.assertEqual(0, result)
         self.assertEqual(('/sb', '-T', '-F', '-c', 'ut -E dm'), cap[0])
 
@@ -5147,11 +5163,13 @@ int main(void) { return 0; }
 
         args = cmdline.parse_args(['test', '--flattree-too', 'dm'])
         col = terminal.Color()
-        with mock.patch.object(command, 'run_one', mock_run):
-            with mock.patch.object(cmdtest, 'ensure_dm_init_files',
-                                   return_value=True):
-                with terminal.capture():
-                    result = cmdtest.run_tests('/sb', [('dm', None)], args, col)
+        with mock.patch.object(cmdtest, 'has_emit_result', return_value=True):
+            with mock.patch.object(command, 'run_one', mock_run):
+                with mock.patch.object(cmdtest, 'ensure_dm_init_files',
+                                       return_value=True):
+                    with terminal.capture():
+                        result = cmdtest.run_tests(
+                            '/sb', [('dm', None)], args, col)
         self.assertEqual(0, result)
         self.assertEqual(('/sb', '-T', '-c', 'ut -E dm'), cap[0])
 
@@ -5166,13 +5184,14 @@ int main(void) { return 0; }
 
         args = cmdline.parse_args(['test', '-V', 'dm'])
         col = terminal.Color()
-        with mock.patch.object(cmdtest, 'has_no_flat', return_value=True):
-            with mock.patch.object(command, 'run_one', mock_run):
-                with mock.patch.object(cmdtest, 'ensure_dm_init_files',
-                                       return_value=True):
-                    with terminal.capture():
-                        result = cmdtest.run_tests(
-                            '/sb', [('dm', None)], args, col)
+        with mock.patch.object(cmdtest, 'has_emit_result', return_value=True):
+            with mock.patch.object(cmdtest, 'has_no_flat', return_value=True):
+                with mock.patch.object(command, 'run_one', mock_run):
+                    with mock.patch.object(cmdtest, 'ensure_dm_init_files',
+                                           return_value=True):
+                        with terminal.capture():
+                            result = cmdtest.run_tests(
+                                '/sb', [('dm', None)], args, col)
         self.assertEqual(0, result)
         self.assertEqual(('/sb', '-T', '-F', '-v', '-c', 'ut -E dm'), cap[0])
 
@@ -5379,20 +5398,21 @@ Tests run: 1, failures: 1
 
         args = cmdline.parse_args(['test', 'dm'])
         args.col = terminal.Color()
-        with mock.patch.object(cmdtest, 'has_no_flat', return_value=True):
-            with mock.patch.object(cmdtest, 'get_sandbox_path',
-                                   return_value='/sb'):
-                with mock.patch.object(cmdtest, 'resolve_specs',
-                                       mock_resolve):
-                    with mock.patch.object(cmdtest, 'validate_specs',
-                                           return_value=[]):
-                        with mock.patch.object(cmdtest,
-                                               'ensure_dm_init_files',
-                                               return_value=True):
-                            with mock.patch.object(command, 'run_one',
-                                                   mock_run):
-                                with terminal.capture():
-                                    result = cmdtest.do_test(args)
+        with mock.patch.object(cmdtest, 'has_emit_result', return_value=True):
+            with mock.patch.object(cmdtest, 'has_no_flat', return_value=True):
+                with mock.patch.object(cmdtest, 'get_sandbox_path',
+                                       return_value='/sb'):
+                    with mock.patch.object(cmdtest, 'resolve_specs',
+                                           mock_resolve):
+                        with mock.patch.object(cmdtest, 'validate_specs',
+                                               return_value=[]):
+                            with mock.patch.object(
+                                    cmdtest, 'ensure_dm_init_files',
+                                    return_value=True):
+                                with mock.patch.object(command, 'run_one',
+                                                       mock_run):
+                                    with terminal.capture():
+                                        result = cmdtest.do_test(args)
         self.assertEqual(0, result)
         self.assertEqual(('/sb', '-T', '-F', '-c', 'ut -E dm'), cap[0])
 

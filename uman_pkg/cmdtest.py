@@ -425,6 +425,22 @@ def has_no_flat():
         return False
 
 
+def has_emit_result():
+    """Check whether the U-Boot tree supports the -E ut flag
+
+    Looks for 'emit_result' in test/cmd_ut.c in the current directory.
+
+    Returns:
+        bool: True if -E is supported
+    """
+    cmd_ut = os.path.join('test', 'cmd_ut.c')
+    try:
+        with open(cmd_ut, encoding='utf-8') as inf:
+            return 'emit_result' in inf.read()
+    except OSError:
+        return False
+
+
 def build_ut_cmd(sandbox, specs, full=False, verbose=False, legacy=False,
                  manual=False):
     """Build the sandbox command line for running tests
@@ -453,7 +469,7 @@ def build_ut_cmd(sandbox, specs, full=False, verbose=False, legacy=False,
     # Build ut commands from specs; use -E to emit Result: lines
     # Flags must come before suite name
     flags = ''
-    if not legacy:
+    if not legacy and has_emit_result():
         flags += '-E '
     if manual:
         flags += '-m '
@@ -614,8 +630,9 @@ def run_tests(sandbox, specs, args, col):  # pylint: disable=R0914
         return 1
 
     # Parse results first to check for failures
+    legacy = args.legacy or not has_emit_result()
     res = parse_results(result.stdout, show_results=args.results, col=col)
-    if not res and args.legacy:
+    if not res and legacy:
         res = parse_legacy_results(result.stdout, show_results=args.results,
                                    col=col)
 

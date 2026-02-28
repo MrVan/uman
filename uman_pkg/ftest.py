@@ -5454,6 +5454,36 @@ Missing required argument 'fs_image' for test 'pxe_test_sysboot'
         self.assertEqual(0, result)
         self.assertEqual(('/sb', '-T', '-F', '-c', 'ut -E dm'), cap[0])
 
+    def test_count_tests_suite(self):
+        """Test count_tests counts tests in a suite"""
+        tests = [('dm', 'test_a'), ('dm', 'test_b')]
+        with mock.patch.object(cmdtest, 'get_tests_from_nm',
+                               return_value=tests) as mock_nm:
+            result = cmdtest.count_tests('/sb', [('dm', None)])
+        self.assertEqual(2, result)
+        mock_nm.assert_called_once_with('/sb', 'dm')
+
+    def test_count_tests_all(self):
+        """Test count_tests counts all tests"""
+        tests = [('dm', 'a'), ('dm', 'b'), ('env', 'c')]
+        with mock.patch.object(cmdtest, 'get_tests_from_nm',
+                               return_value=tests):
+            result = cmdtest.count_tests('/sb', [('all', None)])
+        self.assertEqual(3, result)
+
+    def test_count_tests_pattern(self):
+        """Test count_tests counts tests matching a pattern"""
+        tests = [('dm', 'gpio'), ('dm', 'gpio_irq'), ('dm', 'i2c')]
+        with mock.patch.object(cmdtest, 'get_tests_from_nm',
+                               return_value=tests):
+            result = cmdtest.count_tests('/sb', [('dm', 'gpio')])
+        self.assertEqual(1, result)
+
+    def test_progress_with_total(self):
+        """Test Progress shows total in output"""
+        prog = cmdtest.Progress(emit_result=True, total=10)
+        self.assertEqual(10, prog.total)
+
     def test_progress_with_emit(self):
         """Test Progress counts Result: lines with -E"""
         prog = cmdtest.Progress(emit_result=True)

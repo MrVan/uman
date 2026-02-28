@@ -601,6 +601,28 @@ def parse_results(output, show_results=False, col=None):
     return TestCounts(passed, failed, skipped)
 
 
+def count_tests(sandbox, specs):
+    """Count expected tests for the given specs
+
+    Args:
+        sandbox (str): Path to sandbox executable
+        specs (list): List of (suite, pattern) tuples
+
+    Returns:
+        int: Number of matching tests, or 0 if unknown
+    """
+    total = 0
+    for suite, pattern in specs:
+        if suite == 'all':
+            return len(get_tests_from_nm(sandbox))
+        tests = get_tests_from_nm(sandbox, suite)
+        if pattern:
+            total += sum(1 for _, name in tests if name.endswith(pattern))
+        else:
+            total += len(tests)
+    return total
+
+
 class Progress:
     """Show live test progress on stderr
 
@@ -612,8 +634,9 @@ class Progress:
     "Test '<name>' failed N times" to adjust the count.
     """
 
-    def __init__(self, emit_result):
+    def __init__(self, emit_result, total=0):
         self.emit = emit_result
+        self.total = total
         self.passed = 0
         self.failed = 0
         self.skipped = 0
@@ -622,10 +645,20 @@ class Progress:
 
     def _show(self):
         """Print the progress line, overwriting the previous one"""
-        total = self.passed + self.failed + self.skipped
+        col = terminal.Color()
+        grn = col.start(terminal.Color.GREEN)
+        red = col.start(terminal.Color.RED)
+        yel = col.start(terminal.Color.YELLOW)
+        rst = col.stop()
+        done = self.passed + self.failed + self.skipped
+        if self.total:
+            hdr = f'{done}/{self.total}:'
+        else:
+            hdr = f'{done}:'
         sys.stderr.write(
-            f'\r  {total}: {self.passed} passed, {self.failed} failed, '
-            f'{self.skipped} skipped')
+            f'\r  {hdr} {grn}{self.passed} passed{rst}, '
+            f'{red}{self.failed} failed{rst}, '
+            f'{yel}{self.skipped} skipped{rst}')
         sys.stderr.flush()
 
     def _process_line(self, line):
@@ -706,7 +739,11 @@ def run_tests(sandbox, specs, args, col):  # pylint: disable=R0914
 
     # Show live progress if stderr is a terminal
     emit = has_emit_result()
-    progress = Progress(emit) if sys.stderr.isatty() else None
+    if sys.stderr.isatty():
+        total = count_tests(sandbox, specs)
+        progress = Progress(emit, total)
+    else:
+        progress = None
     output_func = progress.update if progress else None
 
     start_time = time.time()

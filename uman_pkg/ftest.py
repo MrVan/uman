@@ -4093,6 +4093,35 @@ class TestCcSubcommand(TestBase):  # pylint: disable=R0904
         self.assertEqual('data', mounts[0][0])
         self.assertEqual('data2', mounts[1][0])
 
+    def test_show_mounts(self):
+        """Test show_mounts parses lxc device output"""
+        yaml = ('datadir:\n'
+                '  path: /home/ubuntu/project\n'
+                '  source: /home/sglass/dev/myproj\n'
+                '  type: disk\n'
+                'hostbin:\n'
+                '  path: /home/ubuntu/bin\n'
+                '  source: /home/sglass/bin\n'
+                '  type: disk\n')
+        result = command.CommandResult(return_code=0, stdout=yaml)
+        with mock.patch.object(cc, 'exec_cmd', return_value=result):
+            with terminal.capture() as (out, err):
+                ret = cc.show_mounts('mybox')
+        self.assertEqual(0, ret)
+        self.assertIn('datadir', out.getvalue())
+        self.assertIn('/home/ubuntu/project', out.getvalue())
+        self.assertFalse(err.getvalue())
+
+    def test_show_mounts_not_found(self):
+        """Test show_mounts with missing container"""
+        result = command.CommandResult(return_code=1, stdout='')
+        with mock.patch.object(cc, 'exec_cmd', return_value=result):
+            with terminal.capture() as (out, err):
+                ret = cc.show_mounts('nobox')
+        self.assertEqual(1, ret)
+        self.assertIn('not found', err.getvalue())
+        self.assertFalse(out.getvalue())
+
     def test_mount_only(self):
         """Test -m without -s just adds the mount and exits"""
         args = cmdline.parse_args(['cc', '-m', '/opt/data', 'mybox'])

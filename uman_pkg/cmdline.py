@@ -94,6 +94,8 @@ def add_claude_code_subparser(subparsers):
                     help='List existing uman containers with project paths')
     cc.add_argument('-m', '--mount', action='append', metavar='PATH',
                     help='Mount a host directory (PATH or HOST:DEST)')
+    cc.add_argument('-M', '--mounts', action='store_true',
+                    help='List mounts for the container')
     cc.add_argument('-s', '--shell', nargs='?', const=True,
                     default=False,
                     help='Open shell or run a command in container')

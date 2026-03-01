@@ -666,6 +666,49 @@ def show_containers():
     return 0
 
 
+def show_mounts(name):
+    """List mounts for a container
+
+    Args:
+        name (str): Container name
+
+    Returns:
+        int: Exit code
+    """
+    result = exec_cmd(['lxc', 'config', 'device', 'show', name],
+                       dry_run=False)
+    if not result or result.return_code:
+        tout.error(f'Container not found: {name}')
+        return 1
+
+    home = os.path.expanduser('~')
+    mounts = []
+    cur_name = None
+    source = path = None
+    for line in result.stdout.splitlines():
+        if not line.startswith(' '):
+            if cur_name and source and path:
+                mounts.append((cur_name, source, path))
+            cur_name = line.rstrip(':')
+            source = path = None
+        elif 'source:' in line:
+            source = line.split(':', 1)[1].strip()
+        elif 'path:' in line:
+            path = line.split(':', 1)[1].strip()
+    if cur_name and source and path:
+        mounts.append((cur_name, source, path))
+
+    if not mounts:
+        tout.notice(f'No mounts for {name}')
+        return 0
+
+    for mname, source, path in mounts:
+        if source.startswith(home):
+            source = '~' + source[len(home):]
+        print(f'  {mname:14s} {source} -> {path}')
+    return 0
+
+
 def run(args):  # pylint: disable=too-many-locals,too-many-branches,too-many-statements
     """Main entry point for the cc subcommand
 
@@ -680,6 +723,10 @@ def run(args):  # pylint: disable=too-many-locals,too-many-branches,too-many-sta
     """
     if args.list_containers:
         return show_containers()
+
+    if args.mounts:
+        name = args.name or os.path.basename(os.path.realpath(os.getcwd()))
+        return show_mounts(name)
 
     if args.mount and not args.shell:
         name = args.name or os.path.basename(os.path.realpath(os.getcwd()))

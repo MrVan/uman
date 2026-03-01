@@ -312,6 +312,9 @@ current directory name and is permanent. Use ``-e`` for a throwaway container.
     uman cc -m /opt/data
     uman cc -m /opt/data:/mnt/data
 
+    # List mounts for a container
+    uman cc -M mybox
+
     # Dry-run to see what would be executed
     uman -n cc
 
@@ -328,6 +331,7 @@ idempotent setup steps.
 - ``-e, --ephemeral``: Use a random name and delete on exit
 - ``-l, --list``: List existing uman containers with project paths
 - ``-m, --mount PATH``: Mount a host directory (see **Mounts** below)
+- ``-M, --mounts``: List mounts for the container
 - ``-r, --rename NEW``: Rename the named container
 - ``-R, --restart``: Restart the container before launching
 - ``-S, --stop``: Stop a running container

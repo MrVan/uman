@@ -308,6 +308,10 @@ current directory name and is permanent. Use ``-e`` for a throwaway container.
     # Delete a container
     uman cc -d mybox
 
+    # Mount extra host directories
+    uman cc -m /opt/data
+    uman cc -m /opt/data:/mnt/data
+
     # Dry-run to see what would be executed
     uman -n cc
 
@@ -323,6 +327,7 @@ idempotent setup steps.
 - ``-d, --delete``: Delete the named container
 - ``-e, --ephemeral``: Use a random name and delete on exit
 - ``-l, --list``: List existing uman containers with project paths
+- ``-m, --mount PATH``: Mount a host directory (see **Mounts** below)
 - ``-r, --rename NEW``: Rename the named container
 - ``-R, --restart``: Restart the container before launching
 - ``-S, --stop``: Stop a running container
@@ -356,6 +361,21 @@ start/done messages so only the session content is captured.
 - ``toolchains``: ``~/.buildman-toolchains`` (if present)
 - ``pbuilder``: ``/var/cache/pbuilder`` (if present), with uid/gid shift
 - ``dotgit``: If ``.git`` is a symlink, the real target is mounted
+
+**Mounts** (``-m``):
+
+The ``-m`` flag mounts a host directory into the container. It accepts
+``HOST:DEST`` or just ``HOST`` (mounted at the same path). It can be repeated
+for multiple mounts::
+
+    uman cc -m ~/dev/linux          # mount at /home/ubuntu/dev/linux
+    uman cc -m /opt/data:/mnt/data  # mount at /mnt/data
+
+Used alone, ``-m`` adds the mount without entering the container. Combine with
+``-s`` to also enter a shell. Tilde (``~``) in the destination expands to the
+container home (``/home/ubuntu``) rather than the host home. The device name is
+derived from the leaf directory (e.g. ``linux`` for ``~/dev/linux``) and is
+shown on success.
 
 **Configuration** (``~/.uman``):
 

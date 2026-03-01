@@ -4044,6 +4044,76 @@ class TestCcSubcommand(TestBase):  # pylint: disable=R0904
         finally:
             os.path.expanduser = orig_expanduser
 
+    def test_get_cli_mounts_none(self):
+        """Test get_cli_mounts with no arguments"""
+        self.assertEqual([], cc.get_cli_mounts(None))
+
+    def test_get_cli_mounts_host_only(self):
+        """Test get_cli_mounts with host path only"""
+        mounts = cc.get_cli_mounts(['/opt/data'])
+        self.assertEqual(1, len(mounts))
+        self.assertEqual('data', mounts[0][0])
+        self.assertEqual('/opt/data', mounts[0][1])
+        self.assertEqual('/opt/data', mounts[0][2])
+
+    def test_get_cli_mounts_host_dest(self):
+        """Test get_cli_mounts with host:dest format"""
+        mounts = cc.get_cli_mounts(['/opt/data:/mnt/data'])
+        self.assertEqual(1, len(mounts))
+        self.assertEqual('data', mounts[0][0])
+        self.assertEqual('/opt/data', mounts[0][1])
+        self.assertEqual('/mnt/data', mounts[0][2])
+
+    def test_get_cli_mounts_expands_tilde(self):
+        """Test get_cli_mounts maps ~ to container home"""
+        mounts = cc.get_cli_mounts(['~/dev/u-boot'])
+        home = os.path.expanduser('~')
+        self.assertEqual(f'{home}/dev/u-boot', mounts[0][1])
+        self.assertEqual('/home/ubuntu/dev/u-boot', mounts[0][2])
+
+    def test_get_cli_mounts_dest_tilde(self):
+        """Test get_cli_mounts maps ~ in dest to container home"""
+        mounts = cc.get_cli_mounts(['/opt/data:~/data'])
+        self.assertEqual('/opt/data', mounts[0][1])
+        self.assertEqual('/home/ubuntu/data', mounts[0][2])
+
+    def test_get_cli_mounts_multiple(self):
+        """Test get_cli_mounts with multiple mounts"""
+        mounts = cc.get_cli_mounts(['/opt/a', '/opt/b:/mnt/b'])
+        self.assertEqual(2, len(mounts))
+        self.assertEqual('a', mounts[0][0])
+        self.assertEqual('/opt/a', mounts[0][1])
+        self.assertEqual('b', mounts[1][0])
+        self.assertEqual('/mnt/b', mounts[1][2])
+
+    def test_get_cli_mounts_duplicate_leaf(self):
+        """Test get_cli_mounts adds suffix for duplicate leaf names"""
+        mounts = cc.get_cli_mounts(['/opt/data', '/mnt/data'])
+        self.assertEqual(2, len(mounts))
+        self.assertEqual('data', mounts[0][0])
+        self.assertEqual('data2', mounts[1][0])
+
+    def test_mount_only(self):
+        """Test -m without -s just adds the mount and exits"""
+        args = cmdline.parse_args(['cc', '-m', '/opt/data', 'mybox'])
+        with mock.patch.object(cc, 'container_exists', return_value=True):
+            with mock.patch.object(cc, 'add_mount') as mock_add:
+                with terminal.capture() as (out, err):
+                    ret = cc.run(args)
+        self.assertEqual(0, ret)
+        mock_add.assert_called_once_with(
+            'mybox', 'data', '/opt/data', '/opt/data', False)
+        self.assertIn('/opt/data -> /opt/data (data)', out.getvalue())
+
+    def test_mount_only_no_container(self):
+        """Test -m fails if the container does not exist"""
+        args = cmdline.parse_args(['cc', '-m', '/opt/data', 'mybox'])
+        with mock.patch.object(cc, 'container_exists', return_value=False):
+            with terminal.capture() as (out, err):
+                ret = cc.run(args)
+        self.assertEqual(1, ret)
+        self.assertIn('not found', err.getvalue())
+
     def test_get_git_symlink_mount_no_symlink(self):
         """Test get_git_symlink_mount when .git is not a symlink"""
         # Create a regular .git directory

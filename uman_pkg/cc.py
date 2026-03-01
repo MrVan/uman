@@ -120,6 +120,50 @@ def get_config_mounts():
     return mounts
 
 
+def get_cli_mounts(mount_args):
+    """Parse -m/--mount command-line arguments into mount triples
+
+    Supports HOST:DEST or just HOST (mounted at the same path).
+
+    Args:
+        mount_args (list of str): Mount arguments from command line
+
+    Returns:
+        list of tuple: (name, src, dst) triples
+    """
+    if not mount_args:
+        return []
+
+    home = os.path.expanduser('~')
+    mounts = []
+    for i, arg in enumerate(mount_args):
+        parts = arg.split(':')
+        if len(parts) == 2:
+            src, dst = parts
+        elif len(parts) == 1:
+            src = dst = parts[0]
+        else:
+            tout.warning(f'Ignoring malformed mount: {arg}')
+            continue
+        src = os.path.expandvars(os.path.expanduser(src))
+        src = os.path.realpath(src)
+        # Expand ~ to the container home, not the host home
+        dst = os.path.expandvars(dst)
+        if dst.startswith('~'):
+            dst = UBUNTU_HOME + dst[1:]
+        elif dst.startswith(home):
+            dst = UBUNTU_HOME + dst[len(home):]
+        # Use the leaf directory as the device name, with a suffix if needed
+        leaf = os.path.basename(dst) or f'cli{i}'
+        name = leaf
+        suffix = 2
+        while any(m[0] == name for m in mounts):
+            name = f'{leaf}{suffix}'
+            suffix += 1
+        mounts.append((name, src, dst))
+    return mounts
+
+
 def get_git_symlink_mount(project_src):
     """Handle .git symlink by creating a mount for the real target
 
@@ -286,6 +330,8 @@ def add_mount(name, mount_name, source, path, dry_run=False, shift=False):
         args.append('shift=true')
     lxc('config', 'device', 'add', '-q', name, mount_name, 'disk',
         *args, dry_run=dry_run)
+
+
 
 
 def wait_for_user(name, dry_run=False):
@@ -538,14 +584,15 @@ def list_containers():
     return containers
 
 
-def add_all_mounts(name, project_src, dry_run=False):
-    """Add all mounts (essential, git symlink, and config) to a container
+def add_all_mounts(name, project_src, mount_args=None, dry_run=False):
+    """Add all mounts (essential, git symlink, config, CLI) to a container
 
     Skips any devices that already exist.
 
     Args:
         name (str): Container name
         project_src (str): Absolute path to the project source directory
+        mount_args (list of str): Mount arguments from -m flag
         dry_run (bool): If True, just show commands
     """
     for mname, source, dest in get_essential_mounts(project_src):
@@ -577,6 +624,9 @@ def add_all_mounts(name, project_src, dry_run=False):
                   shift=True)
 
     for mname, source, dest in get_config_mounts():
+        add_mount(name, mname, source, dest, dry_run)
+
+    for mname, source, dest in get_cli_mounts(mount_args):
         add_mount(name, mname, source, dest, dry_run)
 
 
@@ -630,6 +680,16 @@ def run(args):  # pylint: disable=too-many-locals,too-many-branches,too-many-sta
     """
     if args.list_containers:
         return show_containers()
+
+    if args.mount and not args.shell:
+        name = args.name or os.path.basename(os.path.realpath(os.getcwd()))
+        if not args.dry_run and not container_exists(name):
+            tout.error(f'Container not found: {name}')
+            return 1
+        for mname, source, dest in get_cli_mounts(args.mount):
+            add_mount(name, mname, source, dest, args.dry_run)
+            tout.notice(f'Mounted {source} -> {dest} ({mname})')
+        return 0
 
     if args.delete:
         if not args.name:
@@ -688,7 +748,7 @@ def run(args):  # pylint: disable=too-many-locals,too-many-branches,too-many-sta
         if not existed:
             create_container(name, base, dry_run)
 
-        add_all_mounts(name, project_src, dry_run)
+        add_all_mounts(name, project_src, args.mount, dry_run)
 
         if args.restart and existed:
             status = container_status(name)

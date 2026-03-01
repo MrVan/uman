@@ -96,6 +96,8 @@ def add_claude_code_subparser(subparsers):
                     help='Mount a host directory (PATH or HOST:DEST)')
     cc.add_argument('-M', '--mounts', action='store_true',
                     help='List mounts for the container')
+    cc.add_argument('-u', '--unmount', metavar='NAME',
+                    help='Remove a mount by device name (see -M)')
     cc.add_argument('-s', '--shell', nargs='?', const=True,
                     default=False,
                     help='Open shell or run a command in container')

@@ -315,6 +315,9 @@ current directory name and is permanent. Use ``-e`` for a throwaway container.
     # List mounts for a container
     uman cc -M mybox
 
+    # Remove a mount (use -M to see device names)
+    uman cc -u data mybox
+
     # Dry-run to see what would be executed
     uman -n cc
 
@@ -332,6 +335,7 @@ idempotent setup steps.
 - ``-l, --list``: List existing uman containers with project paths
 - ``-m, --mount PATH``: Mount a host directory (see **Mounts** below)
 - ``-M, --mounts``: List mounts for the container
+- ``-u, --unmount NAME``: Remove a mount by device name (see ``-M`` for names)
 - ``-r, --rename NEW``: Rename the named container
 - ``-R, --restart``: Restart the container before launching
 - ``-S, --stop``: Stop a running container

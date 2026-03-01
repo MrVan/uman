@@ -4143,6 +4143,35 @@ class TestCcSubcommand(TestBase):  # pylint: disable=R0904
         self.assertEqual(1, ret)
         self.assertIn('not found', err.getvalue())
 
+    def test_unmount(self):
+        """Test -u removes a mount device"""
+        args = cmdline.parse_args(['-n', 'cc', '-u', 'linux', 'mybox'])
+        with terminal.capture() as (out, err):
+            ret = cc.run(args)
+        self.assertEqual(0, ret)
+        self.assertIn('lxc config device remove', out.getvalue())
+        self.assertIn('linux', out.getvalue())
+
+    def test_unmount_missing(self):
+        """Test -u fails if the device does not exist"""
+        args = cmdline.parse_args(['cc', '-u', 'nosuch', 'mybox'])
+        result = command.CommandResult(return_code=1, stdout='', stderr='')
+        with mock.patch.object(cc, 'container_exists', return_value=True):
+            with mock.patch.object(cc, 'has_mount', return_value=False):
+                with terminal.capture() as (out, err):
+                    ret = cc.run(args)
+        self.assertEqual(1, ret)
+        self.assertIn('nosuch', err.getvalue())
+
+    def test_unmount_no_container(self):
+        """Test -u fails if the container does not exist"""
+        args = cmdline.parse_args(['cc', '-u', 'linux', 'mybox'])
+        with mock.patch.object(cc, 'container_exists', return_value=False):
+            with terminal.capture() as (out, err):
+                ret = cc.run(args)
+        self.assertEqual(1, ret)
+        self.assertIn('not found', err.getvalue())
+
     def test_get_git_symlink_mount_no_symlink(self):
         """Test get_git_symlink_mount when .git is not a symlink"""
         # Create a regular .git directory

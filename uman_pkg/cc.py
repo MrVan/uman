@@ -332,6 +332,22 @@ def add_mount(name, mount_name, source, path, dry_run=False, shift=False):
         *args, dry_run=dry_run)
 
 
+def remove_mount(name, mount_name, dry_run=False):
+    """Remove a disk device from a container
+
+    Args:
+        name (str): Container name
+        mount_name (str): Device name
+        dry_run (bool): If True, just show command
+
+    Returns:
+        bool: True if removed successfully
+    """
+    if not dry_run and not has_mount(name, mount_name):
+        tout.error(f'No device {mount_name!r} on container {name}')
+        return False
+    lxc('config', 'device', 'remove', name, mount_name, dry_run=dry_run)
+    return True
 
 
 def wait_for_user(name, dry_run=False):
@@ -737,6 +753,13 @@ def run(args):  # pylint: disable=too-many-locals,too-many-branches,too-many-sta
             add_mount(name, mname, source, dest, args.dry_run)
             tout.notice(f'Mounted {source} -> {dest} ({mname})')
         return 0
+
+    if args.unmount:
+        name = args.name or os.path.basename(os.path.realpath(os.getcwd()))
+        if not args.dry_run and not container_exists(name):
+            tout.error(f'Container not found: {name}')
+            return 1
+        return 0 if remove_mount(name, args.unmount, args.dry_run) else 1
 
     if args.delete:
         if not args.name:

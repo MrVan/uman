@@ -364,6 +364,7 @@ start/done messages so only the session content is captured.
 - ``hostbin``: ``~/bin`` for host scripts
 - ``uman``: Uman install directory (so ``~/bin`` symlinks work)
 - ``uboottools``: U-Boot tools directory (``$UBOOT_TOOLS`` or ``~/u/tools``)
+- ``patman``: ``~/dev/patman`` for patch workflows (if present)
 - ``tmpb``: Container ``/tmp/b`` to ``/tmp/<name>/b`` on the host
 - ``buildman``: ``~/.buildman`` (if present)
 - ``toolchains``: ``~/.buildman-toolchains`` (if present)

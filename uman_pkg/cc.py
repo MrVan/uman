@@ -83,6 +83,10 @@ def get_essential_mounts(project_src):
             os.environ.get('UBOOT_TOOLS', '~/u/tools'))),
          f'{UBUNTU_HOME}/u/tools'),
     ]
+    patman_dir = os.path.join(home, 'dev', 'patman')
+    if os.path.isdir(patman_dir):
+        mounts.append(('patman', patman_dir, f'{UBUNTU_HOME}/dev/patman'))
+
     for fname, mname in [('.gitconfig', 'gitconfig'),
                           ('.buildman', 'buildman'),
                           ('.buildman-toolchains', 'toolchains')]:
@@ -459,10 +463,13 @@ def setup_uman(name, uboot_tools=None, dry_run=False):
     uman_dir = get_uman_dir()
     um_path = os.path.join(uman_dir, 'um')
     uman_bin = os.path.join(uman_dir, 'uman_pkg', 'uman')
+    patman = f'{UBUNTU_HOME}/dev/patman/tools/patman/patman'
     lxc_exec(name,
              f'mkdir -p ~/.local/bin && '
              f'ln -sf {uman_bin} {um_path} && '
-             f'ln -sf {uman_bin} ~/.local/bin/um',
+             f'ln -sf {uman_bin} ~/.local/bin/um && '
+             f'test -e {patman} && ln -sf {patman} ~/.local/bin/patman '
+             f'|| true',
              dry_run=dry_run, user='ubuntu')
     setup_cmd = (
         f'export PATH="$HOME/.local/bin:$HOME/bin:$PATH" && '

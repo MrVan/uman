@@ -39,6 +39,7 @@ def get_git_action_names():
 ALIASES = {
     'claude-code': ['cc'],
     'config': ['cfg'],
+    'docker': ['d'],
     'git': ['g'],
     'selftest': ['st'],
     'pytest': ['py'],
@@ -95,6 +96,23 @@ def add_claude_code_subparser(subparsers):
                     default=False,
                     help='Open shell or run a command in container')
     return cc
+
+
+def add_docker_subparser(subparsers):
+    """Add the 'docker' subparser"""
+    dtest = subparsers.add_parser(
+        'docker', aliases=ALIASES['docker'],
+        help='Run U-Boot tests in CI Docker container')
+    add_test_opts(dtest, board_help='Board name (default: sandbox)',
+                  board_default='sandbox')
+    dtest.add_argument('-a', '--adjust-cfg', action='append',
+                       metavar='CFG', dest='adjust_cfg',
+                       help='Adjust Kconfig (can use multiple times)')
+    dtest.add_argument('-i', '--image', metavar='IMAGE',
+                       help='Override Docker image')
+    dtest.add_argument('-I', '--interactive', action='store_true',
+                       help='Drop to shell in container')
+    return dtest
 
 
 def add_ci_subparser(subparsers):
@@ -212,15 +230,11 @@ def add_pytest_subparser(subparsers):
     pyt = subparsers.add_parser(
         'pytest', aliases=ALIASES['pytest'],
         help='Run pytest tests for U-Boot')
-    pyt.add_argument(
-        'test_spec', type=str, nargs='*',
-        help="Test specification (e.g. 'test_dm', 'not sleep')")
+    add_test_opts(pyt,
+                  board_help='Board name to test (required; use -l to list QEMU boards)')
     pyt.add_argument(
         '-b', '--build', action='store_true',
         help='Build U-Boot before running tests')
-    pyt.add_argument(
-        '-B', '--board', metavar='BOARD',
-        help='Board name to test (required; use -l to list QEMU boards)')
     pyt.add_argument(
         '-c', '--show-cmd', action='store_true',
         help='Show QEMU command line without running tests')
@@ -249,9 +263,6 @@ def add_pytest_subparser(subparsers):
         '-q', '--quiet', action='store_true',
         help='Quiet mode: only show build output, progress, and result')
     pyt.add_argument(
-        '-s', '--show-output', action='store_true',
-        help='Show all test output in real-time (pytest -s)')
-    pyt.add_argument(
         '-S', '--setup-only', action='store_true',
         help='Run only fixture setup (create test images) without tests')
     pyt.add_argument(
@@ -261,9 +272,6 @@ def add_pytest_subparser(subparsers):
     pyt.add_argument(
         '--no-timeout', action='store_true',
         help='Disable test timeout')
-    pyt.add_argument(
-        '-x', '--exitfirst', action='store_true',
-        help='Stop on first test failure')
     pyt.add_argument(
         '--pollute', metavar='TEST',
         help='Find which test pollutes TEST (causes it to fail)')
@@ -473,6 +481,7 @@ def setup_parser():
     add_claude_code_subparser(subparsers)
     add_ci_subparser(subparsers)
     add_config_subparser(subparsers)
+    add_docker_subparser(subparsers)
     add_git_subparser(subparsers)
     add_selftest_subparser(subparsers)
     add_pytest_subparser(subparsers)

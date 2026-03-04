@@ -23,6 +23,9 @@ Subcommands
 ``ci``
     Push current branch to GitLab CI with configurable test stages
 
+``docker`` (alias: ``d``)
+    Run U-Boot tests in the same Docker container used by CI
+
 ``pytest`` (alias: ``py``)
     Run U-Boot's test.py framework with automatic environment setup
 
@@ -180,6 +183,54 @@ The tool can create GitLab merge requests with automated pipeline creation::
 run), not fine-grained selection of specific boards or test specifications.
 For precise targeting like ``-p coreboot`` or ``-t "test_ofplatdata"``, use
 regular CI pushes instead of merge requests.
+
+Docker Subcommand
+-----------------
+
+The ``docker`` command (alias ``d``) runs U-Boot tests inside the same Docker
+image used by GitLab CI. It parses ``.gitlab-ci.yml`` from the U-Boot tree to
+determine the Docker image and build/test script, so the local test environment
+matches CI exactly.
+
+The container bind-mounts the U-Boot source directory (from ``$USRC`` or the
+current directory) at ``/source`` and runs as the current user, so build
+artefacts have the correct ownership.
+
+::
+
+    # Run all sandbox tests (board defaults to sandbox)
+    uman docker
+
+    # Run specific tests
+    uman docker test_ofplatdata or test_handoff
+
+    # Test a different board
+    uman docker -B sandbox_noinst test_ofplatdata
+
+    # Stop on first failure, show output
+    uman docker -x -s test_dm
+
+    # Adjust Kconfig before building
+    uman docker -a CONFIG_TRACE test_trace
+
+    # Drop to an interactive shell in the container
+    uman docker -I
+
+    # Override the Docker image
+    uman docker -i my-registry/u-boot-ci:latest
+
+    # Dry-run to see the docker command
+    uman -n docker -B sandbox test_dm
+
+**Options**:
+
+- ``test_spec``: Test specification using pytest -k syntax (positional)
+- ``-a, --adjust-cfg CFG``: Adjust Kconfig setting (can use multiple times)
+- ``-B, --board BOARD``: Board name (default: sandbox)
+- ``-i, --image IMAGE``: Override Docker image (default: from .gitlab-ci.yml)
+- ``-I, --interactive``: Drop to a bash shell in the container
+- ``-s, --show-output``: Show all test output in real-time (pytest -s)
+- ``-x, --exitfirst``: Stop on first test failure
 
 CC Subcommand
 -------------

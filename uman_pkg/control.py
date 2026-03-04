@@ -329,6 +329,10 @@ def run_command(args):  # pylint: disable=R0911
         from uman_pkg import cmdconfig
         return cmdconfig.run(args)
 
+    if args.cmd == 'docker':
+        from uman_pkg import cmddocker
+        return cmddocker.run(args)
+
     if args.cmd == 'git':
         from uman_pkg import cmdgit
         return cmdgit.run(args)

@@ -21,8 +21,8 @@ from u_boot_pylib import tools
 from u_boot_pylib import tout
 import gitlab
 
-from uman_pkg import (build, cc, cmdconfig, cmdgit, cmdline, cmdpy, cmdtest,
-                      control, gitlab_parser, settings, setup, util)
+from uman_pkg import (build, cc, cmdconfig, cmddocker, cmdgit, cmdline, cmdpy,
+                      cmdtest, control, gitlab_parser, settings, setup, util)
 
 # Capture stdout and stderr for silent command execution
 CAPTURE = {'capture': True, 'capture_stderr': True}
@@ -6351,3 +6351,193 @@ class TestPytestHooks(TestBase):
 
         self.assertEqual('qemu', result['console_impl'])
         self.assertEqual('qemu-system-arm', result['qemu_binary'])
+
+
+class TestDockerTest(TestBase):
+    """Test the docker (d) subcommand"""
+
+    GITLAB_CI = '''default:
+  image: ${MIRROR_DOCKER}/sjg20/u-boot-ci-runner:jammy-20250404-abc123
+
+.buildman_and_testpy_template:
+  before_script:
+    - git config --global --add safe.directory "${CI_PROJECT_DIR}"
+    - ln -s travis-ci test/hooks/bin/`hostname`
+    - ln -s travis-ci test/hooks/py/`hostname`
+    - python3 -m venv /tmp/venv;
+      . /tmp/venv/bin/activate;
+      pip install -r test/py/requirements.txt
+  script:
+    - export UBOOT_TRAVIS_BUILD_DIR=/tmp/${TEST_PY_BD}
+    - tools/buildman/buildman -o ${UBOOT_TRAVIS_BUILD_DIR} -w -E -W -e
+        --board ${TEST_PY_BD} ${OVERRIDE}
+    - cp /opt/grub/grub_x86.efi $UBOOT_TRAVIS_BUILD_DIR/
+    - if [[ -n "${TEST_SPEC}" ]]; then
+        SPEC="${TEST_SPEC}";
+      else
+        SPEC="${TEST_PY_TEST_SPEC}";
+      fi
+    - export PATH=/opt/qemu/bin:test/hooks/bin:${PATH};
+      ./test/py/test.py -ra --bd ${TEST_PY_BD}
+        ${SPEC:+"-k ${SPEC}"}
+        --build-dir "$UBOOT_TRAVIS_BUILD_DIR"
+
+stages:
+  - build
+'''
+
+    def setUp(self):
+        super().setUp()
+        tout.init(tout.NOTICE)
+        self.orig_cwd = os.getcwd()
+        self.orig_usrc = os.environ.get('USRC')
+        if 'USRC' in os.environ:
+            del os.environ['USRC']
+
+        # Create a fake U-Boot tree
+        os.chdir(self.test_dir)
+        os.makedirs('test/py')
+        tools.write_file('test/py/test.py', b'# test')
+        tools.write_file('.gitlab-ci.yml',
+                         self.GITLAB_CI.encode(), binary=True)
+
+    def tearDown(self):
+        os.chdir(self.orig_cwd)
+        if self.orig_usrc is not None:
+            os.environ['USRC'] = self.orig_usrc
+        elif 'USRC' in os.environ:
+            del os.environ['USRC']
+        super().tearDown()
+
+    def test_load_ci_yaml(self):
+        """Test loading .gitlab-ci.yml"""
+        data = cmddocker.load_ci_yaml(self.test_dir)
+        self.assertIsNotNone(data)
+        self.assertIn('default', data)
+
+    def test_load_ci_yaml_missing(self):
+        """Test load_ci_yaml with missing file"""
+        with terminal.capture() as (out, err):
+            data = cmddocker.load_ci_yaml(self.orig_cwd)
+        self.assertIsNone(data)
+
+    def test_get_ci_image(self):
+        """Test parsing Docker image from parsed YAML"""
+        data = cmddocker.load_ci_yaml(self.test_dir)
+        image = cmddocker.get_ci_image(data)
+        self.assertEqual(
+            'docker.io/sjg20/u-boot-ci-runner:jammy-20250404-abc123',
+            image)
+
+    def test_get_ci_image_no_match(self):
+        """Test get_ci_image when image is not found"""
+        with terminal.capture() as (out, err):
+            image = cmddocker.get_ci_image({'stages': ['build']})
+        self.assertIsNone(image)
+        self.assertEqual('Cannot find image in .gitlab-ci.yml\n',
+                         err.getvalue())
+
+    def test_get_ci_script(self):
+        """Test extracting script from parsed YAML"""
+        data = cmddocker.load_ci_yaml(self.test_dir)
+        before, script = cmddocker.get_ci_script(data)
+        self.assertTrue(len(before) > 0)
+        self.assertTrue(len(script) > 0)
+
+    def test_build_script(self):
+        """Test script generation without test spec"""
+        data = cmddocker.load_ci_yaml(self.test_dir)
+        script = cmddocker.build_script(data, 'sandbox', None)
+        self.assertIn('--board sandbox', script)
+        self.assertIn('UBOOT_TRAVIS_BUILD_DIR=/tmp/sandbox', script)
+        self.assertIn('cp /opt/grub/grub_x86.efi', script)
+
+    def test_build_script_test_spec(self):
+        """Test script generation with test spec"""
+        data = cmddocker.load_ci_yaml(self.test_dir)
+        script = cmddocker.build_script(data, 'sandbox',
+                                        'test_ofplatdata')
+        self.assertIn('test_ofplatdata', script)
+
+    def test_build_script_board(self):
+        """Test script generation with a different board"""
+        data = cmddocker.load_ci_yaml(self.test_dir)
+        script = cmddocker.build_script(data, 'sandbox_flattree', None)
+        self.assertIn('--board sandbox_flattree', script)
+        self.assertIn('UBOOT_TRAVIS_BUILD_DIR=/tmp/sandbox_flattree',
+                      script)
+
+    def test_run_dry_run(self):
+        """Test dry-run shows docker command"""
+        args = cmdline.parse_args(['-n', 'docker'])
+        with terminal.capture() as (out, err):
+            res = cmddocker.run(args)
+        self.assertEqual(0, res)
+        output = out.getvalue()
+        self.assertIn('docker run --rm', output)
+        self.assertIn('--user', output)
+        self.assertIn('HOME=/tmp', output)
+        self.assertIn('/etc/passwd:/etc/passwd:ro', output)
+        self.assertIn('docker.io/sjg20/u-boot-ci-runner', output)
+        self.assertFalse(err.getvalue())
+
+    def test_run_dry_run_with_spec(self):
+        """Test dry-run with test spec"""
+        args = cmdline.parse_args(['-n', 'd', 'test_ofplatdata'])
+        with terminal.capture() as (out, err):
+            res = cmddocker.run(args)
+        self.assertEqual(0, res)
+        output = out.getvalue()
+        self.assertIn('test_ofplatdata', output)
+        self.assertFalse(err.getvalue())
+
+    def test_run_dry_run_interactive(self):
+        """Test dry-run in interactive mode"""
+        args = cmdline.parse_args(['-n', 'docker', '-I'])
+        with terminal.capture() as (out, err):
+            res = cmddocker.run(args)
+        self.assertEqual(0, res)
+        output = out.getvalue()
+        self.assertIn('docker run --rm', output)
+        # Interactive mode should just run bash, not bash -c <script>
+        self.assertNotIn('bash -c', output)
+        self.assertFalse(err.getvalue())
+
+    def test_run_dry_run_custom_image(self):
+        """Test dry-run with custom image"""
+        args = cmdline.parse_args(
+            ['-n', 'd', '-i', 'myimage:latest'])
+        with terminal.capture() as (out, err):
+            res = cmddocker.run(args)
+        self.assertEqual(0, res)
+        self.assertIn('myimage:latest', out.getvalue())
+        self.assertFalse(err.getvalue())
+
+    def test_run_no_uboot(self):
+        """Test run when not in a U-Boot tree"""
+        os.chdir(self.orig_cwd)
+        args = cmdline.parse_args(['docker'])
+        with terminal.capture() as (out, err):
+            res = cmddocker.run(args)
+        self.assertEqual(1, res)
+
+    def test_cmdline_defaults(self):
+        """Test default argument values"""
+        args = cmdline.parse_args(['docker'])
+        self.assertEqual('sandbox', args.board)
+        self.assertEqual([], args.test_spec)
+        self.assertIsNone(args.image)
+        self.assertFalse(args.interactive)
+
+    def test_cmdline_alias(self):
+        """Test d alias resolves to docker"""
+        args = cmdline.parse_args(['d'])
+        self.assertEqual('docker', args.cmd)
+
+    def test_control_dispatch(self):
+        """Test control.run_command dispatches to docker-test"""
+        args = cmdline.parse_args(['-n', 'docker'])
+        with terminal.capture() as (out, err):
+            res = control.run_command(args)
+        self.assertEqual(0, res)
+        self.assertIn('docker run', out.getvalue())

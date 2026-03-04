@@ -94,7 +94,7 @@ def get_ci_script(data):
 
 
 def build_script(data, board, test_spec, adjust_cfg=None,
-                 pytest_args=None):
+                 pytest_args=None, gdb=False):
     """Generate the shell script to run inside the Docker container
 
     Parses the before_script and script sections from .gitlab-ci.yml
@@ -106,6 +106,7 @@ def build_script(data, board, test_spec, adjust_cfg=None,
         test_spec (str or None): pytest -k filter spec
         adjust_cfg (list or None): Kconfig adjustments for buildman -a
         pytest_args (list or None): Extra pytest flags (e.g. ['-x', '-s'])
+        gdb (bool): Install gdbserver in the container
 
     Returns:
         str: Shell script to pass to bash -c, or None on error
@@ -127,13 +128,35 @@ def build_script(data, board, test_spec, adjust_cfg=None,
     # Apply substitutions to each command; set test spec as shell
     # variables so bash handles ${VAR:+...} expansions natively
     spec = test_spec or ''
-    commands = ['set -e',
-                'mkdir -p test/hooks/bin test/hooks/py',
-                f'export TEST_PY_TEST_SPEC="{spec}"',
-                f'export TEST_SPEC="{spec}"']
-    for cmd in before + script:
+    commands = ['set -e']
+    if gdb:
+        commands.append(
+            'which gdbserver >/dev/null 2>&1 ||'
+            ' (apt-get update -qq && apt-get install -y -qq gdbserver)')
+    commands.extend(['mkdir -p test/hooks/bin test/hooks/py',
+                     f'export TEST_PY_TEST_SPEC="{spec}"',
+                     f'export TEST_SPEC="{spec}"'])
+    # Insert gdbserver wrapper just before test.py (the last command
+    # in script). This wraps the main u-boot binary, not SPL, so gdb
+    # doesn't need to follow the SPL-to-u-boot exec.
+    gdb_wrapper = []
+    if gdb:
+        gdb_wrapper = [
+            'bd=$UBOOT_TRAVIS_BUILD_DIR',
+            'mv $bd/u-boot $bd/u-boot.real',
+            'printf \'#!/bin/bash\\n'
+            'exec gdbserver :1234 '
+            '"$(dirname "$0")/u-boot.real" "$@"\\n\''
+            ' > $bd/u-boot',
+            'chmod +x $bd/u-boot',
+        ]
+
+    all_cmds = before + script
+    for i, cmd in enumerate(all_cmds):
         for var, val in subs.items():
             cmd = cmd.replace(f'${{{var}}}', val)
+        if gdb_wrapper and i == len(all_cmds) - 1:
+            commands.extend(gdb_wrapper)
         commands.append(cmd)
 
     return '\n'.join(commands)
@@ -171,23 +194,46 @@ def run(args):
         command.output_one_line('id', '-g')
 
     docker_cmd = ['docker', 'run', '--rm',
-                  '--user', uid_gid,
                   '-e', 'HOME=/tmp',
                   '-v', '/etc/passwd:/etc/passwd:ro',
                   '-v', f'{uboot_dir}:/source',
-                  '-w', '/source', image]
+                  '-w', '/source']
+
+    # Run as root when gdbserver is needed so we can install it;
+    # otherwise run as current user for correct file ownership
+    if args.gdb_phase:
+        docker_cmd.extend(['--user', '0:0',
+                           '--cap-add=SYS_PTRACE',
+                           '-p', '1234:1234'])
+        tout.notice('When tests stall, connect from another terminal:')
+        tout.notice(f'   um py -G -B {board}')
+        tout.notice('Type c <enter> to continue; tests then proceed')
+    else:
+        docker_cmd.extend(['--user', uid_gid])
+
+    docker_cmd.append(image)
 
     if args.interactive:
         docker_cmd.append('bash')
+        tout.notice(f'Starting interactive shell in {image}...')
     else:
+        tout.notice(f'Building and testing {board}...')
         spec = ' '.join(args.test_spec) if args.test_spec else None
         extra = []
         if args.exitfirst:
             extra.append('-x')
         if args.show_output:
             extra.append('-s')
+
+        # For SPL debugging, pass --gdbserver to test.py so it wraps
+        # the initial binary (SPL); for u-boot debugging, use a wrapper
+        # script so gdbserver starts after SPL exec's the main binary
+        gdb = bool(args.gdb_phase)
+        if args.gdb_phase and args.gdb_phase != 'u-boot':
+            extra.extend(['--gdbserver', 'localhost:1234'])
+            gdb = False
         script = build_script(data, board, spec, args.adjust_cfg,
-                              extra or None)
+                              extra or None, gdb=gdb)
         if not script:
             return 1
         docker_cmd.extend(['bash', '-c', script])

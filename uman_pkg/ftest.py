@@ -133,6 +133,7 @@ def make_args(**kwargs):
         'flattree_too': False,
         'fresh': False,
         'gdb': False,
+        'gdb_phase': None,
         'gdbserver': None,
         'jobs': None,
         'list_boards': False,
@@ -3447,7 +3448,7 @@ qemu_binary="nonexistent-qemu-xyz"
     def test_pytest_gdb_dry_run(self):
         """Test pytest -G with dry-run prints gdb command"""
         args = make_args(cmd='pytest', board='sandbox',
-                         gdbserver='localhost:1234',
+                         gdb_phase='u-boot',
                          gdb=True, dry_run=True)
 
         # Mock subprocess.run to capture what would be run
@@ -6381,6 +6382,7 @@ class TestDockerTest(TestBase):
       ./test/py/test.py -ra --bd ${TEST_PY_BD}
         ${SPEC:+"-k ${SPEC}"}
         --build-dir "$UBOOT_TRAVIS_BUILD_DIR"
+        ${TEST_PY_EXTRA}
 
 stages:
   - build
@@ -6459,6 +6461,15 @@ stages:
                                         'test_ofplatdata')
         self.assertIn('test_ofplatdata', script)
 
+    def test_build_script_gdb(self):
+        """Test script generation with gdbserver wrapper"""
+        data = cmddocker.load_ci_yaml(self.test_dir)
+        script = cmddocker.build_script(data, 'sandbox', None, gdb=True)
+        self.assertIn('apt-get', script)
+        self.assertIn('mv $bd/u-boot $bd/u-boot.real', script)
+        self.assertIn('gdbserver :1234', script)
+        self.assertIn('chmod +x $bd/u-boot', script)
+
     def test_build_script_board(self):
         """Test script generation with a different board"""
         data = cmddocker.load_ci_yaml(self.test_dir)
@@ -6521,11 +6532,40 @@ stages:
             res = cmddocker.run(args)
         self.assertEqual(1, res)
 
+    def test_run_dry_run_gdb(self):
+        """Test dry-run with gdbserver wrapper for u-boot"""
+        args = cmdline.parse_args(['-n', 'docker', '-g'])
+        self.assertEqual('u-boot', args.gdb_phase)
+        with terminal.capture() as (out, err):
+            res = cmddocker.run(args)
+        self.assertEqual(0, res)
+        output = out.getvalue()
+        self.assertIn('--user 0:0', output)
+        self.assertIn('--cap-add=SYS_PTRACE', output)
+        self.assertIn('-p 1234:1234', output)
+        self.assertIn('apt-get', output)
+        self.assertIn('u-boot.real', output)
+        self.assertIn('gdbserver :1234', output)
+        self.assertIn('um py -G -B sandbox', output)
+        self.assertNotIn('--gdbserver', output)
+
+    def test_run_dry_run_gdb_spl(self):
+        """Test dry-run with gdbserver for SPL"""
+        args = cmdline.parse_args(['-n', 'docker', '-g', 'spl'])
+        self.assertEqual('spl', args.gdb_phase)
+        with terminal.capture() as (out, err):
+            res = cmddocker.run(args)
+        self.assertEqual(0, res)
+        output = out.getvalue()
+        self.assertIn('--gdbserver localhost:1234', output)
+        self.assertNotIn('u-boot.real', output)
+
     def test_cmdline_defaults(self):
         """Test default argument values"""
         args = cmdline.parse_args(['docker'])
         self.assertEqual('sandbox', args.board)
         self.assertEqual([], args.test_spec)
+        self.assertIsNone(args.gdb_phase)
         self.assertIsNone(args.image)
         self.assertFalse(args.interactive)
 

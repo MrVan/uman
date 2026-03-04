@@ -216,6 +216,12 @@ artefacts have the correct ownership.
     # Drop to an interactive shell in the container
     uman docker -I
 
+    # Debug u-boot under gdbserver
+    uman docker -g -B sandbox_noinst test_spl
+
+    # Debug SPL under gdbserver
+    uman docker -g spl -B sandbox_noinst test_spl
+
     # Override the Docker image
     uman docker -i my-registry/u-boot-ci:latest
 
@@ -227,10 +233,43 @@ artefacts have the correct ownership.
 - ``test_spec``: Test specification using pytest -k syntax (positional)
 - ``-a, --adjust-cfg CFG``: Adjust Kconfig setting (can use multiple times)
 - ``-B, --board BOARD``: Board name (default: sandbox)
+- ``-g [PHASE]``: Debug with gdbserver (see below; default: u-boot)
 - ``-i, --image IMAGE``: Override Docker image (default: from .gitlab-ci.yml)
 - ``-I, --interactive``: Drop to a bash shell in the container
 - ``-s, --show-output``: Show all test output in real-time (pytest -s)
 - ``-x, --exitfirst``: Stop on first test failure
+
+**Debugging with GDB**:
+
+The ``-g`` flag enables gdbserver inside the Docker container. It installs
+gdbserver (as root), exposes port 1234, and prints instructions for
+connecting from another terminal.
+
+The optional PHASE argument selects which binary to debug:
+
+- ``-g`` or ``-g u-boot``: Debug the main U-Boot binary. A wrapper script
+  replaces ``u-boot`` so that gdbserver starts only after SPL has finished.
+  SPL runs normally, then exec's the wrapper which starts gdbserver on the
+  real ``u-boot`` binary. This avoids gdb's inability to follow exec calls
+  over remote debugging.
+
+- ``-g spl``: Debug SPL directly. Passes ``--gdbserver`` to test.py which
+  wraps the initial SPL binary with gdbserver. Use this when the problem is
+  in SPL itself.
+
+Workflow::
+
+    # Terminal 1: start tests with gdbserver
+    uman docker -g -B sandbox_noinst test_spl
+
+    # Terminal 2: connect gdb (after "Listening on port 1234" appears)
+    um py -G -B sandbox_noinst
+    (gdb) c
+
+The ``-G`` flag in ``um py`` launches ``gdb-multiarch``, loads symbols from
+the local build (``/tmp/b/<board>/u-boot``), and connects to
+``localhost:1234``. Type ``c`` to continue execution; tests then proceed
+normally. Set breakpoints before continuing to catch specific code paths.
 
 CC Subcommand
 -------------

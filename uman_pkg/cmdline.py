@@ -248,9 +248,6 @@ def add_pytest_subparser(subparsers):
         '--find', metavar='PATTERN',
         help='Find tests matching PATTERN and show full IDs')
     pyt.add_argument(
-        '-g', action='store_const', const='localhost:1234', dest='gdbserver',
-        help='Start gdbserver (wait for gdb client to connect)')
-    pyt.add_argument(
         '-G', '--gdb', action='store_true',
         help='Launch gdb client (connect to existing gdbserver from -g)')
     pyt.add_argument(

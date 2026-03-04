@@ -461,8 +461,10 @@ def build_pytest_cmd(args):
         cmd.append('--setup-only')
     if args.persist:
         cmd.append('--persist')
-    if args.gdbserver:
-        cmd.extend(['--gdbserver', args.gdbserver])
+    gdb_channel = args.gdbserver or (
+        'localhost:1234' if args.gdb_phase else None)
+    if gdb_channel:
+        cmd.extend(['--gdbserver', gdb_channel])
     if args.exitfirst:
         cmd.append('-x')
     if not args.flattree_too and has_no_full():
@@ -956,7 +958,7 @@ def run_with_gdb(args):
         return 1
 
     # Get gdbserver channel
-    channel = args.gdbserver or 'localhost:1234'
+    channel = getattr(args, 'gdbserver', None) or 'localhost:1234'
 
     # Build gdb command
     gdb_cmd = [
@@ -1325,9 +1327,9 @@ def do_pytest(args):  # pylint: disable=too-many-return-statements,too-many-bran
         tout.notice('Try: uman setup qemu')
         return 1
 
-    # Handle -G: set gdbserver if not already set
-    if args.gdb and not args.gdbserver:
-        args.gdbserver = 'localhost:1234'
+    # Handle -G: set gdb_phase if not already set
+    if args.gdb and not args.gdb_phase:
+        args.gdb_phase = 'u-boot'
 
     # Build with um if requested, rather than letting pytest do it
     if args.build:
@@ -1349,7 +1351,7 @@ def do_pytest(args):  # pylint: disable=too-many-return-statements,too-many-bran
         args.build = False  # Don't build again in pytest
 
     # Show -G command hint when using -g (not in dry-run mode)
-    if args.gdbserver and not args.gdb and not args.dry_run:
+    if args.gdb_phase and not args.gdb and not args.dry_run:
         tout.notice(f'In another terminal: um py -G -B {args.board}')
 
     pytest_vars = pytest_env(args.board)

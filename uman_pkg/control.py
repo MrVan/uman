@@ -8,6 +8,7 @@ This module provides various functions called by the main program to implement
 the features of uman.
 """
 
+import os
 import sys
 
 # pylint: disable=import-error
@@ -419,6 +420,11 @@ def do_merge_request(args):  # pylint: disable=too-many-locals
     """
     # pylint: disable=import-outside-toplevel
     import gitlab
+
+    uboot_tools = os.path.expanduser(
+        os.environ.get('UBOOT_TOOLS', '~/u/tools'))
+    if uboot_tools not in sys.path:
+        sys.path.insert(0, uboot_tools)
     from pickman import gitlab_api
     from u_boot_pylib import gitutil
 

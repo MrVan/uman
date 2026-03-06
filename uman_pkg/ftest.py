@@ -1745,7 +1745,7 @@ class TestGitSubcommand(TestBase):
 
     def test_do_dh(self):
         """Test do_dh runs git difftool HEAD~"""
-        args = cmdline.parse_args(['git', 'dh'])
+        args = cmdline.parse_args(['git', 'di'])
         with mock.patch('u_boot_pylib.command.run_one') as mock_run:
             mock_run.return_value = mock.Mock(return_code=0)
             result = cmdgit.do_dh(args)
@@ -1755,7 +1755,7 @@ class TestGitSubcommand(TestBase):
 
     def test_do_dh_with_count(self):
         """Test do_dh N runs git difftool HEAD~N"""
-        args = cmdline.parse_args(['git', 'dh', '3'])
+        args = cmdline.parse_args(['git', 'di', '3'])
         with mock.patch('u_boot_pylib.command.run_one') as mock_run:
             mock_run.return_value = mock.Mock(return_code=0)
             result = cmdgit.do_dh(args)
@@ -1765,7 +1765,7 @@ class TestGitSubcommand(TestBase):
 
     def test_do_dh_with_file(self):
         """Test do_dh with file path passes it to difftool"""
-        args = cmdline.parse_args(['git', 'dh', 'some/file.c'])
+        args = cmdline.parse_args(['git', 'di', 'some/file.c'])
         with mock.patch('u_boot_pylib.command.run_one') as mock_run:
             mock_run.return_value = mock.Mock(return_code=0)
             result = cmdgit.do_dh(args)
@@ -1776,7 +1776,7 @@ class TestGitSubcommand(TestBase):
 
     def test_do_dh_with_count_and_file(self):
         """Test do_dh N file passes both to difftool"""
-        args = cmdline.parse_args(['git', 'dh', '2', 'some/file.c'])
+        args = cmdline.parse_args(['git', 'di', '2', 'some/file.c'])
         with mock.patch('u_boot_pylib.command.run_one') as mock_run:
             mock_run.return_value = mock.Mock(return_code=0)
             result = cmdgit.do_dh(args)

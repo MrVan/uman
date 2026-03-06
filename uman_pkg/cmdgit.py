@@ -97,6 +97,8 @@ def show_rebase_status(output, return_code=0):
                 label = 'empty commit'
             tout.notice(f'Rebasing{pos_str} {label} {match.group(1)}... '
                         f'{match.group(2)}')
+        else:
+            tout.error(output.strip())
 
 
 def show_rb_status():

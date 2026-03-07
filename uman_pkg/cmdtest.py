@@ -9,6 +9,7 @@ in sandbox.
 """
 
 from collections import namedtuple
+import fnmatch
 import os
 import re
 import shlex
@@ -369,7 +370,7 @@ def resolve_specs(sandbox, specs):
                 all_tests = get_tests_from_nm(sandbox)
             found = False
             for test_suite, test_name in all_tests:
-                if test_name.endswith(pattern):
+                if fnmatch.fnmatch(test_name, f'*{pattern}'):
                     resolved.append((test_suite, pattern))
                     found = True
                     break  # Only add first match
@@ -403,7 +404,7 @@ def validate_specs(sandbox, specs):
             if pattern is None:
                 found = True
                 break
-            if test_name.endswith(pattern):
+            if fnmatch.fnmatch(test_name, f'*{pattern}'):
                 found = True
                 break
         if not found:

@@ -66,15 +66,14 @@ def setup_aliases(args):
 
     alias_dir = os.path.expanduser(alias_dir)
 
-    # Find uman executable
-    uman_path = shutil.which('um') or shutil.which('uman')
+    # Find uman executable - prefer the one next to this file
+    uman_path = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                             'uman')
+    if not os.path.exists(uman_path):
+        uman_path = shutil.which('um') or shutil.which('uman')
     if not uman_path:
-        # Try to find it relative to this file
-        this_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        uman_path = os.path.join(this_dir, 'um')
-        if not os.path.exists(uman_path):
-            tout.error('Cannot find uman executable')
-            return 1
+        tout.error('Cannot find uman executable')
+        return 1
 
     uman_path = os.path.abspath(uman_path)
 

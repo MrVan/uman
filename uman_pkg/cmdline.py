@@ -300,7 +300,10 @@ def add_setup_subparser(subparsers):
         'setup', help='Build firmware blobs needed for testing')
     setup.add_argument(
         'component', type=str, nargs='?', default=None,
-        help="Component to build (e.g. 'opensbi'), or omit to build all")
+        help="Component to set up (e.g. 'opensbi', 'remote'), or omit for all")
+    setup.add_argument(
+        'host', type=str, nargs='?', default=None,
+        help="Hostname for 'remote' component (e.g. user@host)")
     setup.add_argument(
         '-d', '--alias-dir', metavar='DIR',
         help='Directory for aliases symlinks (default: ~/bin)')

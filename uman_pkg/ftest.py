@@ -4710,6 +4710,7 @@ More text
         self.assertIn('gcc', setup.SETUP_COMPONENTS)
         self.assertIn('qemu', setup.SETUP_COMPONENTS)
         self.assertIn('opensbi', setup.SETUP_COMPONENTS)
+        self.assertIn('remote', setup.SETUP_COMPONENTS)
         self.assertIn('tfa', setup.SETUP_COMPONENTS)
         self.assertIn('xtensa', setup.SETUP_COMPONENTS)
 
@@ -4792,6 +4793,39 @@ More text
         tout.init(tout.NOTICE)
         self.assertEqual(0, res)
         self.assertFalse(out.getvalue())
+
+    def test_setup_remote_parsing(self):
+        """Test that setup remote subcommand is parsed correctly"""
+        args = cmdline.parse_args(['setup', 'remote', 'myhost'])
+        self.assertEqual('setup', args.cmd)
+        self.assertEqual('remote', args.component)
+        self.assertEqual('myhost', args.host)
+
+    def test_setup_remote_no_host(self):
+        """Test setup remote with no hostname"""
+        args = argparse.Namespace(
+            cmd='setup', component='remote', host=None,
+            list_components=False, force=False, dry_run=False,
+            verbose=False, debug=False, alias_dir=None)
+        with terminal.capture() as (_, err):
+            res = setup.do_setup(args)
+        self.assertEqual(1, res)
+        self.assertIn('Hostname required', err.getvalue())
+
+    def test_setup_remote_dry_run(self):
+        """Test setup remote in dry-run mode"""
+        args = argparse.Namespace(
+            cmd='setup', component='remote', host='testhost',
+            list_components=False, force=False, dry_run=True,
+            verbose=False, debug=False, alias_dir=None)
+        with terminal.capture() as (out, _):
+            res = setup.do_setup(args)
+        self.assertEqual(0, res)
+        output = out.getvalue()
+        self.assertIn('rsync', output)
+        self.assertIn('testhost', output)
+        self.assertIn('ln -sf', output)
+        self.assertIn('setup aliases', output)
 
 
 class TestMain(TestBase):

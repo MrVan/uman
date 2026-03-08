@@ -25,6 +25,7 @@ from uman_pkg import util
 # Available components for setup command
 SETUP_COMPONENTS = {
     'aliases': 'Create symlinks for git action commands',
+    'remote': 'Deploy uman to a remote machine via SSH',
     'efi': 'QEMU EFI firmware for ARM, ARM64, RISC-V and x86',
     'gcc': 'GCC cross-compiler and build dependencies',
     'qemu': 'QEMU emulators for all architectures',
@@ -77,7 +78,7 @@ def setup_aliases(args):
 
     uman_path = os.path.abspath(uman_path)
 
-    aliases = [a.short for a in cmdgit.GIT_ACTIONS] + ['cg']
+    aliases = [a.short for a in cmdgit.GIT_ACTIONS] + ['cg', 'uman']
 
     if args.dry_run:
         tout.notice(f'Would create symlinks in {alias_dir} -> {uman_path}')
@@ -521,6 +522,71 @@ def setup_xtensa(blobs_dir, args):
     return 0
 
 
+RSYNC_EXCLUDES = [
+    '.git/', '__pycache__/', '*.pyc', '*.pyo', '.pytest_cache/',
+    '.benchmarks/', '.claude/', '.hypothesis/', 'mmc*.img', 'spi.bin', 'um',
+]
+
+REMOTE_UMAN_DIR = '~/dev/uman'
+REMOTE_BIN = '~/bin'
+
+
+def setup_remote(args):
+    """Deploy uman to a remote machine via SSH
+
+    Rsyncs the uman repo, creates ~/bin/um symlink, and runs
+    setup aliases on the remote.
+
+    Args:
+        args (argparse.Namespace): Command line arguments
+            args.host: SSH hostname (e.g. 'user@host' or 'host')
+
+    Returns:
+        int: Exit code (0 for success, non-zero for failure)
+    """
+    host = args.host
+    if not host:
+        tout.error('Hostname required: um setup remote <hostname>')
+        return 1
+
+    uman_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+    # Step 1: rsync the uman repo to the remote
+    rsync_cmd = ['rsync', '-az', '--delete']
+    for excl in RSYNC_EXCLUDES:
+        rsync_cmd += ['--exclude', excl]
+    rsync_cmd += [uman_dir + '/', f'{host}:{REMOTE_UMAN_DIR}/']
+
+    tout.notice(f'Syncing uman to {host}:{REMOTE_UMAN_DIR}...')
+    if args.dry_run:
+        tout.notice(f'  {" ".join(rsync_cmd)}')
+    else:
+        mkdir_cmd = ['ssh', host,
+                     f'mkdir -p {REMOTE_UMAN_DIR} {REMOTE_BIN}']
+        command.run_pipe([mkdir_cmd], capture=True)
+        command.run_pipe([rsync_cmd], capture=False, raise_on_error=True)
+
+    # Step 2: Create ~/bin/um symlink on the remote
+    link = f'{REMOTE_UMAN_DIR}/uman_pkg/uman'
+    ln_cmd = ['ssh', host, f'ln -sf {link} {REMOTE_BIN}/um']
+    tout.notice(f'Creating symlink {REMOTE_BIN}/um on {host}...')
+    if args.dry_run:
+        tout.notice(f'  {" ".join(ln_cmd)}')
+    else:
+        command.run_pipe([ln_cmd], capture=True)
+
+    # Step 3: Run setup aliases on the remote
+    setup_cmd = ['ssh', host, f'{REMOTE_BIN}/um setup aliases -f']
+    tout.notice(f'Setting up aliases on {host}...')
+    if args.dry_run:
+        tout.notice(f'  {" ".join(setup_cmd)}')
+    else:
+        command.run_pipe([setup_cmd], capture=False, raise_on_error=True)
+
+    tout.notice(f'Remote setup complete on {host}')
+    return 0
+
+
 def do_setup(args):
     """Handle setup command - build firmware blobs
 
@@ -546,7 +612,7 @@ def do_setup(args):
             return 1
         components = [args.component]
     else:
-        components = list(SETUP_COMPONENTS.keys())
+        components = [c for c in SETUP_COMPONENTS if c != 'remote']
 
     # Dispatch table for component setup functions
     setup_funcs = {
@@ -557,6 +623,7 @@ def do_setup(args):
         'opensbi': lambda: setup_opensbi(blobs_dir, args),
         'tfa': lambda: setup_tfa(blobs_dir, args),
         'xtensa': lambda: setup_xtensa(blobs_dir, args),
+        'remote': lambda: setup_remote(args),
     }
 
     # Build each component

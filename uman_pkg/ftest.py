@@ -1152,20 +1152,39 @@ class TestGitSubcommand(TestBase):
         self.assertEqual('', pos)
 
     def test_seq_edit_env_break(self):
-        """Test seq_edit_env creates break command"""
+        """Test seq_edit_env inserts a break"""
         env = cmdgit.seq_edit_env('break')
         self.assertIn('GIT_SEQUENCE_EDITOR', env)
-        self.assertEqual('sed -i "1i break"', env['GIT_SEQUENCE_EDITOR'])
+        todo = os.path.join(self.test_dir, 'todo')
+        with open(todo, 'w', encoding='utf-8') as fil:
+            fil.write('pick abc First\npick def Second\n')
+        os.system(f'{env["GIT_SEQUENCE_EDITOR"]} {todo}')
+        with open(todo, encoding='utf-8') as fil:
+            self.assertEqual('break\npick abc First\npick def Second\n',
+                             fil.read())
 
     def test_seq_edit_env_edit(self):
-        """Test seq_edit_env creates edit command"""
+        """Test seq_edit_env changes pick to edit"""
         env = cmdgit.seq_edit_env('edit')
-        self.assertEqual('sed -i "1s/^pick/edit/"', env['GIT_SEQUENCE_EDITOR'])
+        todo = os.path.join(self.test_dir, 'todo')
+        with open(todo, 'w', encoding='utf-8') as fil:
+            fil.write('pick abc First\npick def Second\n')
+        os.system(f'{env["GIT_SEQUENCE_EDITOR"]} {todo}')
+        with open(todo, encoding='utf-8') as fil:
+            self.assertEqual('edit abc First\npick def Second\n',
+                             fil.read())
 
     def test_seq_edit_env_edit_line(self):
         """Test seq_edit_env with specific line number"""
-        env = cmdgit.seq_edit_env('edit', 3)
-        self.assertEqual('sed -i "3s/^pick/edit/"', env['GIT_SEQUENCE_EDITOR'])
+        env = cmdgit.seq_edit_env('edit', 2)
+        todo = os.path.join(self.test_dir, 'todo')
+        with open(todo, 'w', encoding='utf-8') as fil:
+            fil.write('pick abc First\npick def Second\npick ghi Third\n')
+        os.system(f'{env["GIT_SEQUENCE_EDITOR"]} {todo}')
+        with open(todo, encoding='utf-8') as fil:
+            self.assertEqual(
+                'pick abc First\nedit def Second\npick ghi Third\n',
+                fil.read())
 
     def test_show_rebase_status_success(self):
         """Test show_rebase_status parses success message"""
@@ -2059,7 +2078,7 @@ class TestGitSubcommand(TestBase):
         self.assertEqual(('rebase', '-i', 'origin/main'), cap[0])
         self.assertIn('GIT_SEQUENCE_EDITOR', cap_env[0])
         # rb inserts a break before first commit to stop at upstream
-        self.assertIn("1i break", cap_env[0]['GIT_SEQUENCE_EDITOR'])
+        self.assertIn("insert(0,'break", cap_env[0]['GIT_SEQUENCE_EDITOR'])
 
     def test_do_rf_no_arg(self):
         """Test do_rf without arg uses upstream"""
@@ -2081,7 +2100,8 @@ class TestGitSubcommand(TestBase):
                     result = cmdgit.do_rf(args)
         self.assertEqual(0, result.return_code)
         self.assertEqual(('rebase', '-i', 'origin/main'), cap[0])
-        self.assertIn("1s/^pick/edit/", cap_env[0]['GIT_SEQUENCE_EDITOR'])
+        self.assertIn("re.sub(r'^pick','edit',lines[0])",
+                      cap_env[0]['GIT_SEQUENCE_EDITOR'])
 
     def test_do_rf_with_count(self):
         """Test do_rf with commit count"""
@@ -2168,7 +2188,7 @@ class TestGitRebase(TestBase, GitRepoMixin):
         self.assertEqual(('rebase', '-i', 'upstream'), call_args[0])
         # Check that GIT_SEQUENCE_EDITOR inserts break before first commit
         env = call_args[1]['env']
-        self.assertIn("1i break", env['GIT_SEQUENCE_EDITOR'])
+        self.assertIn("insert(0,'break", env['GIT_SEQUENCE_EDITOR'])
 
     def test_rf_with_count(self):
         """Test rf N rebases last N commits, stopping at first"""
@@ -2181,7 +2201,8 @@ class TestGitRebase(TestBase, GitRepoMixin):
         call_args = mock_git.call_args
         self.assertEqual(('rebase', '-i', 'HEAD~3'), call_args[0])
         env = call_args[1]['env']
-        self.assertIn("1s/^pick/edit/", env['GIT_SEQUENCE_EDITOR'])
+        self.assertIn("re.sub(r'^pick','edit',lines[0])",
+                      env['GIT_SEQUENCE_EDITOR'])
 
     def test_rp_stops_at_patch_n(self):
         """Test rp N stops at patch N"""
@@ -2194,7 +2215,8 @@ class TestGitRebase(TestBase, GitRepoMixin):
         call_args = mock_git.call_args
         self.assertEqual(('rebase', '-i', 'upstream'), call_args[0])
         env = call_args[1]['env']
-        self.assertIn("2s/^pick/edit/", env['GIT_SEQUENCE_EDITOR'])
+        self.assertIn("re.sub(r'^pick','edit',lines[1])",
+                      env['GIT_SEQUENCE_EDITOR'])
 
     def test_real_rf_and_rc(self):
         """Test a real rf followed by rc to complete rebase"""

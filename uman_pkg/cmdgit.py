@@ -135,9 +135,16 @@ def seq_edit_env(action, line=1):
     """
     env = os.environ.copy()
     if action == 'break':
-        env['GIT_SEQUENCE_EDITOR'] = f'sed -i "{line}i break"'
+        script = (f"import sys; p=sys.argv[1]; "
+                  f"lines=open(p).readlines(); "
+                  f"lines.insert({line - 1},'break\\n'); "
+                  f"open(p,'w').writelines(lines)")
     else:  # edit
-        env['GIT_SEQUENCE_EDITOR'] = f'sed -i "{line}s/^pick/edit/"'
+        script = (f"import sys,re; p=sys.argv[1]; "
+                  f"lines=open(p).readlines(); "
+                  f"lines[{line - 1}]=re.sub(r'^pick','edit',lines[{line - 1}]); "
+                  f"open(p,'w').writelines(lines)")
+    env['GIT_SEQUENCE_EDITOR'] = f'python3 -c "{script}"'
     return env
 
 

@@ -605,14 +605,21 @@ def do_setup(args):
     blobs_dir = settings.get('blobs_dir', '~/dev/blobs')
 
     # Determine which components to build
-    if args.component:
-        if args.component not in SETUP_COMPONENTS:
-            tout.error(f'Unknown component: {args.component}')
-            tout.notice('Use --list to see available components')
-            return 1
-        components = [args.component]
-    else:
+    if not args.component:
+        tout.notice('Available components:')
+        for name, desc in SETUP_COMPONENTS.items():
+            tout.notice(f'  {name}: {desc}')
+        tout.notice("Use 'um setup <component>' or 'um setup all'")
+        return 0
+
+    if args.component == 'all':
         components = [c for c in SETUP_COMPONENTS if c != 'remote']
+    elif args.component not in SETUP_COMPONENTS:
+        tout.error(f'Unknown component: {args.component}')
+        tout.notice('Use --list to see available components')
+        return 1
+    else:
+        components = [args.component]
 
     # Dispatch table for component setup functions
     setup_funcs = {

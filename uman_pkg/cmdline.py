@@ -151,28 +151,29 @@ def add_build_opts(parser):
     Args:
         parser: Argument parser to add options to
     """
-    parser.add_argument(
+    group = parser.add_argument_group('build options')
+    group.add_argument(
         '-a', '--adjust-cfg', action='append', metavar='CFG', dest='adjust_cfg',
         help='Adjust Kconfig setting (use with -b; can use multiple times)')
-    parser.add_argument(
+    group.add_argument(
         '-f', '--force-reconfig', action='store_true',
         help='Force reconfiguration (use with -b)')
-    parser.add_argument(
+    group.add_argument(
         '-F', '--fresh', action='store_true',
         help='Delete build dir before building (use with -b)')
-    parser.add_argument(
+    group.add_argument(
         '-j', '--jobs', type=int, metavar='JOBS',
         help='Number of parallel jobs for build (use with -b)')
-    parser.add_argument(
+    group.add_argument(
         '-L', '--lto', action='store_true',
         help='Enable LTO when building (use with -b)')
-    parser.add_argument(
+    group.add_argument(
         '-o', '--output-dir', metavar='DIR', dest='output_dir',
         help='Override build directory (use with -b)')
-    parser.add_argument(
+    group.add_argument(
         '-T', '--trace', action='store_true',
         help='Enable function tracing (use with -b)')
-    parser.add_argument(
+    group.add_argument(
         '--no-trace-early', action='store_true', dest='no_trace_early',
         help='Disable TRACE_EARLY when using -T (use with -b)')
 

@@ -137,6 +137,7 @@ def make_args(**kwargs):
         'jobs': None,
         'list_boards': False,
         'lto': False,
+        'malloc_dump': None,
         'merge': False,
         'no_timeout': False,
         'null': False,

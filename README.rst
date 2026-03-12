@@ -528,6 +528,8 @@ hooks to PATH.
 - ``-T, --trace``: Enable function tracing; adds CONFIG_TRACE and
   CONFIG_TRACE_EARLY (use with -b)
 - ``--no-trace-early``: Disable TRACE_EARLY when using -T (use with -b)
+- ``--malloc-dump FILE``: Write malloc heap dump on exit; ``%d`` in the filename
+  is expanded to a sequence number
 - ``--no-timeout``: Disable test timeout
 - ``-x, --exitfirst``: Stop on first test failure
 - ``--pollute TEST``: Find which test pollutes TEST
@@ -677,6 +679,8 @@ without going through pytest. This is faster for quick iteration on C code.
 - ``-l, --list``: List available tests
 - ``-L, --lto``: Enable LTO when building (use with -b)
 - ``--legacy``: Use legacy result parsing (for old U-Boot)
+- ``--malloc-dump FILE``: Write malloc heap dump on exit; ``%d`` in the filename
+  is expanded to a sequence number
 - ``-m, --manual``: Force manual tests to run (tests with _norun suffix)
 - ``-o, --output-dir DIR``: Override build directory (use with -b)
 - ``-r, --results``: Show per-test pass/fail status

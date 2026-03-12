@@ -467,6 +467,8 @@ def build_pytest_cmd(args):
         cmd.append('-x')
     if not args.flattree_too and has_no_full():
         cmd.append('--no-full')
+    if args.malloc_dump:
+        cmd.extend(['--malloc-dump', args.malloc_dump])
 
     # Add extra pytest arguments (after --)
     if args.extra_args:

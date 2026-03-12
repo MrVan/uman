@@ -145,6 +145,35 @@ def add_selftest_subparser(subparsers):
     return stest
 
 
+def add_test_opts(parser, board_help=None, board_default=None):
+    """Add common test options to a parser
+
+    Args:
+        parser: Argument parser to add options to
+        board_help (str or None): Help text for -B flag
+        board_default (str or None): Default board value
+    """
+    parser.add_argument(
+        'test_spec', type=str, nargs='*',
+        help="Test specification (e.g. 'test_dm', 'not sleep')")
+    parser.add_argument(
+        '-B', '--board', metavar='BOARD', default=board_default,
+        help=board_help or 'Board name to test')
+    parser.add_argument(
+        '-g', nargs='?', const='u-boot', default=None, dest='gdb_phase',
+        metavar='PHASE',
+        help='Debug with gdbserver (spl, tpl, vpl; default: u-boot)')
+    parser.add_argument(
+        '-s', '--show-output', action='store_true',
+        help='Show all test output in real-time (pytest -s)')
+    parser.add_argument(
+        '-x', '--exitfirst', action='store_true',
+        help='Stop on first test failure')
+    parser.add_argument(
+        '--malloc-dump', metavar='FILE', dest='malloc_dump',
+        help='Write malloc dump to FILE on exit')
+
+
 def add_build_opts(parser):
     """Add common build options to a parser
 
@@ -349,6 +378,9 @@ def add_test_subparser(subparsers):
     test.add_argument(
         '-s', '--suites', action='store_true', dest='list_suites',
         help='List available test suites')
+    test.add_argument(
+        '--malloc-dump', metavar='FILE', dest='malloc_dump',
+        help='Write malloc dump to FILE on exit')
     test.add_argument(
         '-V', '--test-verbose', action='store_true', dest='test_verbose',
         help='Enable verbose test output')

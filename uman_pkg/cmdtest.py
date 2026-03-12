@@ -446,7 +446,7 @@ def has_emit_result():
 
 
 def build_ut_cmd(sandbox, specs, full=False, verbose=False, legacy=False,
-                 manual=False):
+                 manual=False, malloc_dump=None):
     """Build the sandbox command line for running tests
 
     Args:
@@ -456,11 +456,15 @@ def build_ut_cmd(sandbox, specs, full=False, verbose=False, legacy=False,
         verbose (bool): Enable verbose test output
         legacy (bool): Legacy mode (don't use -E flag for older U-Boot)
         manual (bool): Force manual tests to run
+        malloc_dump (str or None): File to write malloc dump to on exit
 
     Returns:
         list: Command and arguments
     """
     cmd = [sandbox, '-T']
+
+    if malloc_dump:
+        cmd.extend(['--malloc_dump', malloc_dump])
 
     # Add -F to skip flat-tree tests (live-tree only) unless full mode
     if not full and has_no_flat():
@@ -724,7 +728,8 @@ def run_tests(sandbox, specs, args, col):  # pylint: disable=R0914
 
     cmd = build_ut_cmd(sandbox, specs, full=args.flattree_too,
                        verbose=args.test_verbose, legacy=args.legacy,
-                       manual=args.manual)
+                       manual=args.manual,
+                       malloc_dump=args.malloc_dump)
 
     if args.dry_run:
         tout.notice(shlex.join(cmd))

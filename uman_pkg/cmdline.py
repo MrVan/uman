@@ -98,6 +98,10 @@ def add_claude_code_subparser(subparsers):
                     help='List mounts for the container')
     cc.add_argument('-u', '--unmount', metavar='NAME',
                     help='Remove a mount by device name (see -M)')
+    cc.add_argument('-p', '--privileged', action='store_true',
+                    help='Enable privileged mode (e.g. LUKS tests)')
+    cc.add_argument('-P', '--no-privileged', action='store_true',
+                    help='Disable privileged mode')
     cc.add_argument('-s', '--shell', nargs='?', const=True,
                     default=False,
                     help='Open shell or run a command in container')

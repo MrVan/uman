@@ -296,6 +296,21 @@ def create_container(name, base, dry_run=False):
                    f'{proc.stderr.decode("utf-8", errors="replace")}')
 
 
+def is_privileged(name):
+    """Check whether a container has privileged mode enabled
+
+    Args:
+        name (str): Container name
+
+    Returns:
+        bool: True if security.privileged is set to true
+    """
+    result = exec_cmd(
+        ['lxc', 'config', 'get', name, 'security.privileged'],
+        dry_run=False)
+    return result is not None and result.stdout.strip() == 'true'
+
+
 def has_mount(name, mount_name):
     """Check whether a container already has a named device
 
@@ -588,7 +603,7 @@ def list_containers():
     """List uman containers (those with a datadir device)
 
     Returns:
-        list of tuple: (name, status, project) triples
+        list of tuple: (name, status, project, privileged) 4-tuples
     """
     result = exec_cmd(['lxc', 'list', '--format', 'csv', '-c', 'ns'],
                        dry_run=False)
@@ -603,7 +618,8 @@ def list_containers():
         if len(parts) >= 2:
             project = get_project(parts[0])
             if project:
-                containers.append((parts[0], parts[1], project))
+                priv = is_privileged(parts[0])
+                containers.append((parts[0], parts[1], project, priv))
     return containers
 
 
@@ -682,10 +698,11 @@ def show_containers():
         tout.notice('No uman containers found')
     else:
         home = os.path.expanduser('~')
-        for cname, status, project in containers:
+        for cname, status, project, priv in containers:
             if project.startswith(home):
                 project = '~' + project[len(home):]
-            tout.notice(f'{cname}  {status:8s}  {project}')
+            flags = ' [privileged]' if priv else ''
+            tout.notice(f'{cname}  {status:8s}  {project}{flags}')
     return 0
 
 
@@ -834,7 +851,71 @@ def run(args):  # pylint: disable=too-many-locals,too-many-branches,too-many-sta
                 lxc('stop', name)
             existed = False
 
+        if args.privileged:
+            lxc('config', 'set', '-q', name, 'security.privileged=true',
+                dry_run=dry_run)
+            lxc('config', 'set', '-q', name, 'raw.idmap=',
+                dry_run=dry_run)
+            raw_lxc = ('lxc.apparmor.profile=unconfined\n'
+                       'lxc.seccomp.profile=')
+            lxc('config', 'set', '-q', name, 'raw.lxc', raw_lxc,
+                dry_run=dry_run)
+            lxc('config', 'set', '-q', name,
+                'security.nesting=true', dry_run=dry_run)
+            tout.notice('Enabled privileged mode')
+            if existed and not dry_run:
+                status = container_status(name)
+                if status == 'RUNNING':
+                    tout.notice(
+                        f'Restart needed: um cc -R {name}')
+                    return 0
+        elif args.no_privileged:
+            uid = str(os.getuid())
+            gid = str(os.getgid())
+            idmap = f'uid {uid} 1000\ngid {gid} 1000'
+            lxc('config', 'set', '-q', name,
+                'security.privileged=false', dry_run=dry_run)
+            lxc('config', 'set', '-q', name, 'raw.lxc=',
+                dry_run=dry_run)
+            lxc('config', 'set', '-q', name,
+                'security.nesting=false', dry_run=dry_run)
+            if not dry_run:
+                import subprocess  # pylint: disable=import-outside-toplevel
+                subprocess.run(
+                    ['lxc', 'config', 'set', '-q', name, 'raw.idmap', '-'],
+                    input=idmap.encode(), check=False, capture_output=True)
+            else:
+                tout.notice(
+                    f'printf {idmap!r} | lxc config set -q {name} raw.idmap -')
+            tout.notice('Disabled privileged mode')
+            if existed and not dry_run:
+                status = container_status(name)
+                if status == 'RUNNING':
+                    tout.notice('Restarting container')
+                    lxc('stop', name)
+                existed = False
+        elif existed and not dry_run:
+            if is_privileged(name):
+                tout.notice(
+                    'Running in privileged mode (device-mapper enabled)')
+
         ensure_running(name, existed, dry_run)
+
+        # In privileged mode, uid namespacing is disabled, so the
+        # container's ubuntu user (uid 1000) won't match the host uid.
+        # Fix this by changing ubuntu's uid/gid to match the host.
+        if args.privileged:
+            uid = os.getuid()
+            gid = os.getgid()
+            lxc_exec(name,
+                      f'usermod -u {uid} ubuntu; groupmod -g {gid} ubuntu;'
+                      f' chown -R {uid}:{gid} /home/ubuntu',
+                      dry_run=dry_run)
+        elif args.no_privileged:
+            lxc_exec(name,
+                      'usermod -u 1000 ubuntu; groupmod -g 1000 ubuntu;'
+                      ' chown -R 1000:1000 /home/ubuntu',
+                      dry_run=dry_run)
 
         # Wait for user and set up (idempotent operations)
         wait_for_user(name, dry_run)

@@ -4397,6 +4397,8 @@ class TestCcSubcommand(TestBase):  # pylint: disable=R0904
             'devbox': '/home/user/dev/linux',
         }
 
+        priv = {'mybox': 'true', 'devbox': ''}
+
         def mock_lxc(pipe_list, **_kwargs):
             cmd = pipe_list[0]
             if 'device' in cmd:
@@ -4407,14 +4409,19 @@ class TestCcSubcommand(TestBase):  # pylint: disable=R0904
                         return_code=0, stdout=proj + '\n', stderr='')
                 return command.CommandResult(
                     return_code=1, stdout='', stderr='not found')
+            if 'security.privileged' in cmd:
+                name = cmd[cmd.index('get') + 1]
+                return command.CommandResult(
+                    return_code=0, stdout=priv.get(name, '') + '\n',
+                    stderr='')
             return command.CommandResult(
                 return_code=0, stdout=csv, stderr='')
 
         command.TEST_RESULT = mock_lxc
         result = cc.list_containers()
         self.assertEqual(
-            [('mybox', 'RUNNING', '/home/user/dev/uboot'),
-             ('devbox', 'STOPPED', '/home/user/dev/linux')],
+            [('mybox', 'RUNNING', '/home/user/dev/uboot', True),
+             ('devbox', 'STOPPED', '/home/user/dev/linux', False)],
             result)
 
     def test_list_containers_empty(self):

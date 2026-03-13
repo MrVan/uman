@@ -318,6 +318,9 @@ current directory name and is permanent. Use ``-e`` for a throwaway container.
     # Remove a mount (use -M to see device names)
     uman cc -u data mybox
 
+    # Enable device-mapper for LUKS encryption tests
+    uman cc -p
+
     # Dry-run to see what would be executed
     uman -n cc
 
@@ -339,6 +342,8 @@ idempotent setup steps.
 - ``-r, --rename NEW``: Rename the named container
 - ``-R, --restart``: Restart the container before launching
 - ``-S, --stop``: Stop a running container
+- ``-p, --privileged``: Enable privileged mode for device-mapper (e.g. LUKS tests);
+  if the container is already running, prints a message about restarting
 - ``-s, --shell [CMD]``: Open interactive shell, or run CMD in container
 
 **Console Logging**:

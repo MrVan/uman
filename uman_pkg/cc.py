@@ -33,8 +33,15 @@ PROJECT_DEST = f'{UBUNTU_HOME}/project'
 # Socket filename for editor proxy (in project directory)
 EDITOR_SOCK = '.uman-editor.sock'
 
+# Fixed mount point for PulseAudio socket inside the container
+PULSE_DEST = '/tmp/pulse-native'
+
+# ALSA config that routes through PulseAudio (suppresses hardware errors)
+ALSA_PULSE_CONF = '/etc/alsa-pulse.conf'
+
 # Default packages to install in containers
-DEFAULT_PACKAGES = 'build-essential pylint xclip'
+DEFAULT_PACKAGES = ('build-essential libasound2-plugins libsox-fmt-pulse'
+                     ' pylint sox xclip')
 
 
 def get_log_path(name):
@@ -97,6 +104,11 @@ def get_essential_mounts(project_src):
     x11_dir = '/tmp/.X11-unix'
     if os.path.isdir(x11_dir):
         mounts.append(('x11', x11_dir, x11_dir))
+
+    # PulseAudio socket for voice input (/voice in Claude Code)
+    pulse_sock = f'/run/user/{os.getuid()}/pulse/native'
+    if os.path.exists(pulse_sock):
+        mounts.append(('pulse', pulse_sock, PULSE_DEST))
 
     for fname, mname in [('.gitconfig', 'gitconfig'),
                           ('.buildman', 'buildman'),
@@ -549,6 +561,12 @@ def setup_uman(name, uboot_tools=None, dry_run=False):
         f"chmod +x {editor_path}")
     lxc_exec(name, write_editor, dry_run=dry_run, user='ubuntu')
 
+    # Write ALSA config that routes through PulseAudio
+    alsa_conf = 'pcm.!default { type pulse }\nctl.!default { type pulse }\n'
+    lxc_exec(name,
+             f"cat > {ALSA_PULSE_CONF} <<'ALSAEOF'\n{alsa_conf}ALSAEOF",
+             dry_run=dry_run)
+
     # Write ~/.uman_env with the full environment block
     display = os.environ.get('DISPLAY', ':0')
     env_block = (
@@ -559,6 +577,10 @@ def setup_uman(name, uboot_tools=None, dry_run=False):
         f'export UBOOT_TOOLS="{uboot_tools}"\n'
         f'export DISPLAY="{display}"\n'
         f'export EDITOR="{editor_path}"\n'
+        f'export PULSE_SERVER="unix:{PULSE_DEST}"\n'
+        'export AUDIODRIVER=pulseaudio\n'
+        f'export ALSA_CONFIG_PATH="{ALSA_PULSE_CONF}"\n'
+        'export PULSE_LATENCY_MSEC=50\n'
         'um() { b="$b" USRC="$USRC" command um "$@"; }\n'
         'eval "$(um git -a)"\n'
         'export BASH_ENV=~/.uman_env\n')

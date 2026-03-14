@@ -282,6 +282,19 @@ the current directory as a project, installs build tools and Claude Code, and
 sets up uman aliases inside the container. The container name defaults to the
 current directory name and is permanent. Use ``-e`` for a throwaway container.
 
+**Prerequisites**:
+
+LXD must be installed and initialised::
+
+    sudo snap install lxd
+    lxd init --minimal
+
+Add your user to the ``lxd`` group if not already a member::
+
+    sudo usermod -aG lxd $USER
+
+Log out and back in for the group change to take effect.
+
 ::
 
     # Launch Claude Code (container named after current directory)
@@ -380,6 +393,14 @@ An editor proxy runs on the host so that Ctrl-G in Claude Code opens the host
 the host path. For other files (e.g. temp files created by Ctrl-G for prompt
 editing), the content is transferred over the socket and a host temp file is
 used.
+
+**Voice Input**:
+
+The PulseAudio socket is mounted into the container and ``sox`` is installed
+so that Claude Code's ``/voice`` command can access the host microphone. For
+existing containers, install sox manually:
+``sudo apt-get install -yqq sox libsox-fmt-pulse libasound2-plugins``
+
 **Essential Mounts** (always added):
 
 - ``datadir``: Current directory to ``/home/ubuntu/project``
@@ -392,6 +413,7 @@ used.
 - ``uman``: Uman install directory (so ``~/bin`` symlinks work)
 - ``uboottools``: U-Boot tools directory (``$UBOOT_TOOLS`` or ``~/u/tools``)
 - ``patman``: ``~/dev/patman`` for patch workflows (if present)
+- ``pulse``: PulseAudio socket for voice input (if present)
 - ``x11``: ``/tmp/.X11-unix`` for clipboard access (if present)
 - ``tmpb``: Container ``/tmp/b`` to ``/tmp/<name>/b`` on the host
 - ``buildman``: ``~/.buildman`` (if present)

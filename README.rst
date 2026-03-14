@@ -373,6 +373,13 @@ This is checked at launch and a reminder is printed if not set. Add the
 command to ``~/.bashrc`` to make it permanent. For existing containers,
 install xclip manually: ``sudo apt-get install -yqq xclip``
 
+**Editor Proxy**:
+
+An editor proxy runs on the host so that Ctrl-G in Claude Code opens the host
+``$EDITOR``. For files inside the project, the container path is translated to
+the host path. For other files (e.g. temp files created by Ctrl-G for prompt
+editing), the content is transferred over the socket and a host temp file is
+used.
 **Essential Mounts** (always added):
 
 - ``datadir``: Current directory to ``/home/ubuntu/project``

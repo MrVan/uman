@@ -4275,6 +4275,88 @@ class TestCcSubcommand(TestBase):  # pylint: disable=R0904
         finally:
             os.path.expanduser = orig_expanduser
 
+    def test_editor_proxy(self):
+        """Test editor proxy translates paths and opens host editor"""
+        import socket as socket_mod
+
+        project_src = self.test_dir
+        opened = []
+        orig_run = subprocess.run
+        subprocess.run = lambda cmd, **kw: opened.append(cmd)
+
+        sock_path = cc.start_editor_proxy(project_src)
+        try:
+            self.assertTrue(os.path.exists(sock_path))
+
+            # Connect and send a container path
+            sock = socket_mod.socket(socket_mod.AF_UNIX,
+                                     socket_mod.SOCK_STREAM)
+            sock.connect(sock_path)
+            sock.sendall(f'{cc.PROJECT_DEST}/foo.c\n'.encode())
+            resp = sock.recv(4096).decode().strip()
+            sock.close()
+
+            self.assertEqual('done', resp)
+            self.assertEqual(1, len(opened))
+            self.assertEqual(os.path.join(project_src, 'foo.c'),
+                             opened[0][1])
+        finally:
+            subprocess.run = orig_run
+            if os.path.exists(sock_path):
+                os.unlink(sock_path)
+
+    def test_editor_proxy_content_transfer(self):
+        """Test editor proxy handles non-project paths via content"""
+        import json
+        import socket as socket_mod
+
+        project_src = self.test_dir
+        opened = []
+        orig_run = subprocess.run
+        subprocess.run = lambda cmd, **kw: opened.append(cmd)
+
+        sock_path = cc.start_editor_proxy(project_src)
+        try:
+            sock = socket_mod.socket(socket_mod.AF_UNIX,
+                                     socket_mod.SOCK_STREAM)
+            sock.connect(sock_path)
+            msg = json.dumps({'content': 'hello', 'ext': '.txt'}) + '\n'
+            sock.sendall(msg.encode())
+            resp_raw = b''
+            while True:
+                chunk = sock.recv(65536)
+                if not chunk:
+                    break
+                resp_raw += chunk
+            sock.close()
+
+            resp = json.loads(resp_raw.decode())
+            self.assertIn('content', resp)
+            self.assertEqual(1, len(opened))
+        finally:
+            subprocess.run = orig_run
+            if os.path.exists(sock_path):
+                os.unlink(sock_path)
+
+    def test_editor_proxy_outside_project(self):
+        """Test editor proxy rejects paths outside the project"""
+        import socket as socket_mod
+
+        project_src = self.test_dir
+        sock_path = cc.start_editor_proxy(project_src)
+        try:
+            sock = socket_mod.socket(socket_mod.AF_UNIX,
+                                     socket_mod.SOCK_STREAM)
+            sock.connect(sock_path)
+            sock.sendall(b'/etc/passwd\n')
+            resp = sock.recv(4096).decode().strip()
+            sock.close()
+
+            self.assertIn('error', resp)
+        finally:
+            if os.path.exists(sock_path):
+                os.unlink(sock_path)
+
     def test_run_command_cc(self):
         """Test run_command dispatches to cc correctly"""
         args = cmdline.parse_args(['-n', 'cc', 'test-cc'])

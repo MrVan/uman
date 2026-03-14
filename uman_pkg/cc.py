@@ -10,7 +10,10 @@ containers for running Claude Code.
 
 import os
 import random
+import socket as socket_mod
 import string
+import subprocess
+import threading
 import time
 
 # pylint: disable=import-error
@@ -26,6 +29,9 @@ UBUNTU_HOME = '/home/ubuntu'
 
 # Project mount point inside the container
 PROJECT_DEST = f'{UBUNTU_HOME}/project'
+
+# Socket filename for editor proxy (in project directory)
+EDITOR_SOCK = '.uman-editor.sock'
 
 # Default packages to install in containers
 DEFAULT_PACKAGES = 'build-essential pylint xclip'
@@ -497,6 +503,48 @@ def setup_uman(name, uboot_tools=None, dry_run=False):
         f'{um_path} -q setup aliases -d ~/.local/bin -f')
     lxc_exec(name, setup_cmd, dry_run=dry_run, user='ubuntu')
 
+    # Write editor proxy script
+    editor_script = (
+        '#!/usr/bin/env python3\n'
+        'import json, os, socket, sys\n'
+        'path = os.path.abspath(sys.argv[1]) if len(sys.argv) > 1'
+        ' else sys.exit(1)\n'
+        f'sock_path = "{PROJECT_DEST}/{EDITOR_SOCK}"\n'
+        's = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)\n'
+        'try:\n'
+        '    s.connect(sock_path)\n'
+        'except OSError:\n'
+        '    sys.exit("editor proxy not running")\n'
+        f'if path.startswith("{PROJECT_DEST}/"):\n'
+        '    s.sendall((path + "\\n").encode())\n'
+        '    resp = s.recv(4096).decode().strip()\n'
+        'else:\n'
+        '    content = open(path).read() if os.path.exists(path) else ""\n'
+        '    ext = os.path.splitext(path)[1]\n'
+        '    msg = json.dumps({"content": content, "ext": ext}) + "\\n"\n'
+        '    s.sendall(msg.encode())\n'
+        '    resp_raw = b""\n'
+        '    while True:\n'
+        '        chunk = s.recv(65536)\n'
+        '        if not chunk:\n'
+        '            break\n'
+        '        resp_raw += chunk\n'
+        '    resp_data = json.loads(resp_raw.decode())\n'
+        '    if resp_data.get("error"):\n'
+        '        print(resp_data["error"], file=sys.stderr)\n'
+        '        sys.exit(1)\n'
+        '    open(path, "w").write(resp_data["content"])\n'
+        '    resp = "done"\n'
+        's.close()\n'
+        'if resp != "done":\n'
+        '    print(resp, file=sys.stderr)\n'
+        '    sys.exit(1)\n')
+    editor_path = f'{UBUNTU_HOME}/.local/bin/uman-editor'
+    write_editor = (
+        f"cat > {editor_path} <<'EDEOF'\n{editor_script}EDEOF\n"
+        f"chmod +x {editor_path}")
+    lxc_exec(name, write_editor, dry_run=dry_run, user='ubuntu')
+
     # Write ~/.uman_env with the full environment block
     display = os.environ.get('DISPLAY', ':0')
     env_block = (
@@ -506,6 +554,7 @@ def setup_uman(name, uboot_tools=None, dry_run=False):
         'export PATH="$HOME/bin:$HOME/.local/bin:$PATH"\n'
         f'export UBOOT_TOOLS="{uboot_tools}"\n'
         f'export DISPLAY="{display}"\n'
+        f'export EDITOR="{editor_path}"\n'
         'um() { b="$b" USRC="$USRC" command um "$@"; }\n'
         'eval "$(um git -a)"\n'
         'export BASH_ENV=~/.uman_env\n')
@@ -520,6 +569,106 @@ def setup_uman(name, uboot_tools=None, dry_run=False):
             f"grep -q '.uman_env' {rcfile} 2>/dev/null || "
             f"echo '{source_line}' >> {rcfile}")
         lxc_exec(name, add_cmd, dry_run=dry_run, user='ubuntu')
+
+
+def editor_listen(sock_path, project_src, host_editor, ready=None):
+    """Listen for editor requests from the container
+
+    Runs in a daemon thread. Accepts connections on a Unix socket.
+    For project paths, translates to host paths and opens the editor.
+    For non-project paths (e.g. /tmp), receives file content as JSON,
+    writes a temp file on the host, opens the editor, and sends back
+    the edited content.
+
+    Args:
+        sock_path (str): Path to the Unix socket file
+        project_src (str): Host-side project directory
+        host_editor (str): Host editor command
+        ready (threading.Event or None): Set when socket is bound
+    """
+    import json
+    import tempfile
+
+    sock = socket_mod.socket(socket_mod.AF_UNIX, socket_mod.SOCK_STREAM)
+    sock.bind(sock_path)
+    # Make socket world-writable so container user can connect
+    os.chmod(sock_path, 0o777)
+    sock.listen(1)
+    sock.settimeout(2)
+    if ready:
+        ready.set()
+    while True:
+        try:
+            conn, _ = sock.accept()
+        except socket_mod.timeout:
+            continue
+        except OSError:
+            break
+        try:
+            data = conn.recv(4096).decode().strip()
+            if not data:
+                continue
+
+            # Translate container path to host path
+            if data.startswith(PROJECT_DEST + '/'):
+                rel = data[len(PROJECT_DEST) + 1:]
+                host_path = os.path.join(project_src, rel)
+                subprocess.run([host_editor, host_path], check=False)
+                conn.sendall(b'done\n')
+            elif data.startswith(PROJECT_DEST):
+                subprocess.run([host_editor, project_src], check=False)
+                conn.sendall(b'done\n')
+            elif data.startswith('{'):
+                msg = json.loads(data)
+                ext = msg.get('ext', '.txt')
+                with tempfile.NamedTemporaryFile(
+                        mode='w', suffix=ext, delete=False) as tmp:
+                    tmp.write(msg['content'])
+                    tmp_path = tmp.name
+                try:
+                    subprocess.run([host_editor, tmp_path], check=False)
+                    with open(tmp_path) as fh:
+                        edited = fh.read()
+                    resp = json.dumps({'content': edited})
+                    conn.sendall(resp.encode())
+                finally:
+                    os.unlink(tmp_path)
+            else:
+                conn.sendall(b'error: path outside project\n')
+        except OSError:
+            pass
+        finally:
+            conn.close()
+
+
+def start_editor_proxy(project_src, dry_run=False):
+    """Start the editor proxy listener in a background thread
+
+    Args:
+        project_src (str): Host-side project directory
+        dry_run (bool): If True, just show what would happen
+
+    Returns:
+        str: Path to the socket file
+    """
+    sock_path = os.path.join(project_src, EDITOR_SOCK)
+    if dry_run:
+        tout.notice(f'# editor proxy: {sock_path}')
+        return sock_path
+
+    # Remove stale socket
+    if os.path.exists(sock_path):
+        os.unlink(sock_path)
+
+    host_editor = os.environ.get('EDITOR', 'vi')
+    ready = threading.Event()
+    thread = threading.Thread(target=editor_listen,
+                              args=(sock_path, project_src, host_editor,
+                                    ready),
+                              daemon=True)
+    thread.start()
+    ready.wait()
+    return sock_path
 
 
 def launch_shell(name, shell_command=None, dry_run=False, log_file=None):
@@ -853,6 +1002,7 @@ def run(args):  # pylint: disable=too-many-locals,too-many-branches,too-many-sta
     else:
         tout.notice(f'Container: {name}')
 
+    sock_path = os.path.join(project_src, EDITOR_SOCK)
     try:
         if not existed:
             create_container(name, base, dry_run)
@@ -896,7 +1046,6 @@ def run(args):  # pylint: disable=too-many-locals,too-many-branches,too-many-sta
             lxc('config', 'set', '-q', name,
                 'security.nesting=false', dry_run=dry_run)
             if not dry_run:
-                import subprocess  # pylint: disable=import-outside-toplevel
                 subprocess.run(
                     ['lxc', 'config', 'set', '-q', name, 'raw.idmap', '-'],
                     input=idmap.encode(), check=False, capture_output=True)
@@ -948,6 +1097,9 @@ def run(args):  # pylint: disable=too-many-locals,too-many-branches,too-many-sta
                     'For clipboard access (image paste): '
                     'xhost +local:')
 
+        # Start editor proxy so Ctrl-G opens the host editor
+        sock_path = start_editor_proxy(project_src, dry_run)
+
         # Launch
         log_file = get_log_path(name)
         tout.notice(f'Logging to {log_file}')
@@ -958,6 +1110,10 @@ def run(args):  # pylint: disable=too-many-locals,too-many-branches,too-many-sta
             launch_claude(name, args.cont, dry_run, log_file)
 
     finally:
+        # Clean up editor socket
+        if os.path.exists(sock_path):
+            os.unlink(sock_path)
+
         # Only delete ephemeral containers that we created
         if not keep and not existed:
             delete_container(name, dry_run)

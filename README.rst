@@ -269,8 +269,10 @@ Workflow::
 
 The ``-G`` flag in ``um py`` launches ``gdb-multiarch``, loads symbols from
 the local build (``/tmp/b/<board>/u-boot``), and connects to
-``localhost:1234``. Type ``c`` to continue execution; tests then proceed
-normally. Set breakpoints before continuing to catch specific code paths.
+``localhost:1234``. SIGUSR2 is automatically silenced since sandbox uses it
+internally for coroutine setup. Type ``c`` to continue execution; tests then
+proceed normally. Set breakpoints before continuing to catch specific code
+paths.
 
 CC Subcommand
 -------------

@@ -3460,6 +3460,7 @@ qemu_binary="nonexistent-qemu-xyz"
         self.assertIn('gdb-multiarch', output)
         self.assertIn('/tmp/b/sandbox/u-boot', output)
         self.assertIn('target remote localhost:1234', output)
+        self.assertIn('handle SIGUSR2 nostop noprint pass', output)
 
     def test_get_uboot_dir_current(self):
         """Test get_uboot_dir finds U-Boot in current directory"""

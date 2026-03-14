@@ -968,6 +968,7 @@ def run_with_gdb(args):
         '-iex', 'set auto-load safe-path /',  # Auto-load .gdbinit
         '-iex', 'set debuginfod enabled off',  # Disable debuginfod prompts
         '-iex', 'set sysroot',  # Suppress remote file transfer warnings
+        '-iex', 'handle SIGUSR2 nostop noprint pass',  # Used by sandbox coroutines
         '-ex', f'target remote {channel}',
     ]
 

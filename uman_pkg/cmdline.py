@@ -98,6 +98,10 @@ def add_claude_code_subparser(subparsers):
                     help='List mounts for the container')
     cc.add_argument('-u', '--unmount', metavar='NAME',
                     help='Remove a mount by device name (see -M)')
+    cc.add_argument('-o', '--output', action='store_true',
+                    help='Mount /tmp/b into the container')
+    cc.add_argument('-O', '--no-output', action='store_true',
+                    help='Remove /tmp/b mount from the container')
     cc.add_argument('-p', '--privileged', action='store_true',
                     help='Enable privileged mode (e.g. LUKS tests)')
     cc.add_argument('-P', '--no-privileged', action='store_true',
@@ -202,7 +206,7 @@ def add_test_opts(parser, board_help=None, board_default=None):
         help='Stop on first test failure')
     parser.add_argument(
         '--malloc-dump', metavar='FILE', dest='malloc_dump',
-        help='Write malloc dump to FILE on exit')
+        help='Write malloc dump to FILE on exit (use %%d for sequence number)')
 
 
 def add_build_opts(parser):
@@ -398,7 +402,7 @@ def add_test_subparser(subparsers):
         help='List available test suites')
     test.add_argument(
         '--malloc-dump', metavar='FILE', dest='malloc_dump',
-        help='Write malloc dump to FILE on exit')
+        help='Write malloc dump to FILE on exit (use %%d for sequence number)')
     test.add_argument(
         '-V', '--test-verbose', action='store_true', dest='test_verbose',
         help='Enable verbose test output')

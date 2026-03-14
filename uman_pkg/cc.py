@@ -623,7 +623,8 @@ def list_containers():
     return containers
 
 
-def add_all_mounts(name, project_src, mount_args=None, dry_run=False):
+def add_all_mounts(name, project_src, mount_args=None, output=False,
+                   no_output=False, dry_run=False):
     """Add all mounts (essential, git symlink, config, CLI) to a container
 
     Skips any devices that already exist.
@@ -632,6 +633,8 @@ def add_all_mounts(name, project_src, mount_args=None, dry_run=False):
         name (str): Container name
         project_src (str): Absolute path to the project source directory
         mount_args (list of str): Mount arguments from -m flag
+        output (bool): If True, mount /tmp/b into the container
+        no_output (bool): If True, remove /tmp/b mount
         dry_run (bool): If True, just show commands
     """
     for mname, source, dest in get_essential_mounts(project_src):
@@ -648,14 +651,19 @@ def add_all_mounts(name, project_src, mount_args=None, dry_run=False):
     if git_mount:
         add_mount(name, *git_mount, dry_run)
 
-    # Mount container /tmp/b to host /tmp/<name>/b for easy access
-    tmp_dir = f'/tmp/{name}/b'
-    os.makedirs(tmp_dir, exist_ok=True)
-    new_tmpb = not dry_run and not has_mount(name, 'tmpb')
-    add_mount(name, 'tmpb', tmp_dir, '/tmp/b', dry_run)
-    if new_tmpb and container_status(name) == 'RUNNING':
-        tout.notice(
-            f'Added /tmp/b mount; activate with: uman cc -R {name}')
+    # Mount /tmp/b if requested, or remove if -O
+    if output:
+        tmp_dir = '/tmp/b'
+        os.makedirs(tmp_dir, exist_ok=True)
+        new_tmpb = not dry_run and not has_mount(name, 'tmpb')
+        add_mount(name, 'tmpb', tmp_dir, '/tmp/b', dry_run)
+        if new_tmpb and container_status(name) == 'RUNNING':
+            tout.notice(
+                f'Added /tmp/b mount; activate with: uman cc -R {name}')
+    elif no_output:
+        if not dry_run and has_mount(name, 'tmpb'):
+            remove_mount(name, 'tmpb')
+            tout.notice('Removed /tmp/b mount')
 
     pbuilder = '/var/cache/pbuilder'
     if os.path.isdir(pbuilder):
@@ -842,7 +850,8 @@ def run(args):  # pylint: disable=too-many-locals,too-many-branches,too-many-sta
         if not existed:
             create_container(name, base, dry_run)
 
-        add_all_mounts(name, project_src, args.mount, dry_run)
+        add_all_mounts(name, project_src, args.mount, args.output,
+                       args.no_output, dry_run)
 
         if args.restart and existed:
             status = container_status(name)

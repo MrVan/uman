@@ -4212,9 +4212,8 @@ class TestCcSubcommand(TestBase):  # pylint: disable=R0904
             self.assertNotIn('lxc delete', output)
             self.assertIn('test-cc', output)
             self.assertNotIn('--continue', output)
-            # /tmp/b mount
-            self.assertIn('tmpb', output)
-            self.assertIn('path=/tmp/b', output)
+            # /tmp/b mount not present without -o
+            self.assertNotIn('tmpb', output)
             # uman env written and sourced
             self.assertIn('.uman_env', output)
             self.assertIn('.bashrc', output)
@@ -5267,6 +5266,16 @@ int main(void) { return 0; }
         """Test build_ut_cmd omits -E when source tree lacks support"""
         cmd = cmdtest.build_ut_cmd('/sb', [('dm', None)])
         self.assertEqual(['/sb', '-T', '-c', 'ut dm'], cmd)
+
+    @mock.patch.object(cmdtest, 'has_emit_result', return_value=True)
+    @mock.patch.object(cmdtest, 'has_no_flat', return_value=True)
+    def test_build_ut_cmd_malloc_dump(self, *_):
+        """Test build_ut_cmd expands %d in malloc_dump filename"""
+        cmd = cmdtest.build_ut_cmd('/sb', [('dm', None)],
+                                   malloc_dump='/tmp/dump-%d.txt')
+        self.assertEqual(
+            ['/sb', '-T', '--malloc_dump', '/tmp/dump-0.txt',
+             '-F', '-c', 'ut -E dm'], cmd)
 
     def test_run_tests_basic(self):
         """Test run_tests executes sandbox correctly"""

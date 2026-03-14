@@ -464,7 +464,7 @@ def build_ut_cmd(sandbox, specs, full=False, verbose=False, legacy=False,
     cmd = [sandbox, '-T']
 
     if malloc_dump:
-        cmd.extend(['--malloc_dump', malloc_dump])
+        cmd.extend(['--malloc_dump', malloc_dump.replace('%d', '0')])
 
     # Add -F to skip flat-tree tests (live-tree only) unless full mode
     if not full and has_no_flat():

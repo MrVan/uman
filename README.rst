@@ -401,6 +401,16 @@ so that Claude Code's ``/voice`` command can access the host microphone. For
 existing containers, install sox manually:
 ``sudo apt-get install -yqq sox libsox-fmt-pulse libasound2-plugins``
 
+**GitHub / GitLab CLI**:
+
+The ``gh`` and ``glab`` CLI tools are installed for managing pull requests and
+CI pipelines. Authenticate on first use::
+
+    gh auth login
+    glab auth login
+
+Credentials are stored inside the container and persist across restarts.
+
 **Essential Mounts** (always added):
 
 - ``datadir``: Current directory to ``/home/ubuntu/project``

@@ -338,12 +338,15 @@ idempotent setup steps.
 - ``-l, --list``: List existing uman containers with project paths
 - ``-m, --mount PATH``: Mount a host directory (see **Mounts** below)
 - ``-M, --mounts``: List mounts for the container
+- ``-o, --output``: Mount ``/tmp/b`` into the container
+- ``-O, --no-output``: Remove the ``/tmp/b`` mount
 - ``-u, --unmount NAME``: Remove a mount by device name (see ``-M`` for names)
 - ``-r, --rename NEW``: Rename the named container
 - ``-R, --restart``: Restart the container before launching
 - ``-S, --stop``: Stop a running container
 - ``-p, --privileged``: Enable privileged mode for device-mapper (e.g. LUKS tests);
   if the container is already running, prints a message about restarting
+- ``-P, --no-privileged``: Disable privileged mode (auto-restarts and restores uid)
 - ``-s, --shell [CMD]``: Open interactive shell, or run CMD in container
 
 **Console Logging**:
@@ -358,6 +361,18 @@ For example: ``~/files/dev/uman-logs/paperman/2026/Feb/log-26.02feb.21-143022.lo
 The log path is printed at launch. The ``-q`` flag suppresses script's own
 start/done messages so only the session content is captured.
 
+**Clipboard (Image Paste)**:
+
+The X11 socket is mounted into the container and ``xclip`` is installed so
+that Claude Code can access the clipboard for image paste (Ctrl-V). The host
+must allow local X11 connections::
+
+    xhost +local:
+
+This is checked at launch and a reminder is printed if not set. Add the
+command to ``~/.bashrc`` to make it permanent. For existing containers,
+install xclip manually: ``sudo apt-get install -yqq xclip``
+
 **Essential Mounts** (always added):
 
 - ``datadir``: Current directory to ``/home/ubuntu/project``
@@ -370,6 +385,7 @@ start/done messages so only the session content is captured.
 - ``uman``: Uman install directory (so ``~/bin`` symlinks work)
 - ``uboottools``: U-Boot tools directory (``$UBOOT_TOOLS`` or ``~/u/tools``)
 - ``patman``: ``~/dev/patman`` for patch workflows (if present)
+- ``x11``: ``/tmp/.X11-unix`` for clipboard access (if present)
 - ``tmpb``: Container ``/tmp/b`` to ``/tmp/<name>/b`` on the host
 - ``buildman``: ``~/.buildman`` (if present)
 - ``toolchains``: ``~/.buildman-toolchains`` (if present)

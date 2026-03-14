@@ -28,7 +28,7 @@ UBUNTU_HOME = '/home/ubuntu'
 PROJECT_DEST = f'{UBUNTU_HOME}/project'
 
 # Default packages to install in containers
-DEFAULT_PACKAGES = 'build-essential pylint'
+DEFAULT_PACKAGES = 'build-essential pylint xclip'
 
 
 def get_log_path(name):
@@ -86,6 +86,11 @@ def get_essential_mounts(project_src):
     patman_dir = os.path.join(home, 'dev', 'patman')
     if os.path.isdir(patman_dir):
         mounts.append(('patman', patman_dir, f'{UBUNTU_HOME}/dev/patman'))
+
+    # X11 socket for clipboard access (image paste in Claude Code)
+    x11_dir = '/tmp/.X11-unix'
+    if os.path.isdir(x11_dir):
+        mounts.append(('x11', x11_dir, x11_dir))
 
     for fname, mname in [('.gitconfig', 'gitconfig'),
                           ('.buildman', 'buildman'),
@@ -493,12 +498,14 @@ def setup_uman(name, uboot_tools=None, dry_run=False):
     lxc_exec(name, setup_cmd, dry_run=dry_run, user='ubuntu')
 
     # Write ~/.uman_env with the full environment block
+    display = os.environ.get('DISPLAY', ':0')
     env_block = (
         '# uman setup — sourced by ~/.bashrc, ~/.profile and BASH_ENV\n'
         '[ "$_UMAN_ENV_LOADED" = 1 ] && return\n'
         '_UMAN_ENV_LOADED=1\n'
         'export PATH="$HOME/bin:$HOME/.local/bin:$PATH"\n'
         f'export UBOOT_TOOLS="{uboot_tools}"\n'
+        f'export DISPLAY="{display}"\n'
         'um() { b="$b" USRC="$USRC" command um "$@"; }\n'
         'eval "$(um git -a)"\n'
         'export BASH_ENV=~/.uman_env\n')
@@ -932,6 +939,14 @@ def run(args):  # pylint: disable=too-many-locals,too-many-branches,too-many-sta
         install_tools(name, packages, dry_run)
         install_claude(name, dry_run)
         setup_uman(name, uboot_tools, dry_run)
+
+        # Check X11 access for clipboard (image paste)
+        if not dry_run and os.path.isdir('/tmp/.X11-unix'):
+            result = exec_cmd(['xhost'], dry_run=False)
+            if result and 'LOCAL:' not in result.stdout:
+                tout.notice(
+                    'For clipboard access (image paste): '
+                    'xhost +local:')
 
         # Launch
         log_file = get_log_path(name)

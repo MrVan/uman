@@ -5,6 +5,11 @@
 uman - U-Boot Manager
 =====================
 
+.. note::
+
+   Parts of this code and documentation were written with AI assistance.
+   Review all changes carefully before relying on them.
+
 This is a simple tool to handle common tasks when developing U-Boot,
 including pushing to CI, running tests, and setting up firmware dependencies.
 

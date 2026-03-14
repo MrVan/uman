@@ -410,6 +410,10 @@ def setup_container(name, dry_run=False):
     """
     lxc_exec(name, 'chown ubuntu:ubuntu /home/ubuntu', dry_run=dry_run)
 
+    # Suppress the Ubuntu sudo hint message
+    lxc_exec(name, 'touch /home/ubuntu/.sudo_as_admin_successful',
+             dry_run=dry_run, user='ubuntu')
+
     # Install terminfo from host
     if not dry_run:
         import subprocess  # pylint: disable=import-outside-toplevel

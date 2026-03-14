@@ -178,9 +178,12 @@ def add_test_opts(parser, board_help=None, board_default=None):
         '-B', '--board', metavar='BOARD', default=board_default,
         help=board_help or 'Board name to test')
     parser.add_argument(
-        '-g', nargs='?', const='u-boot', default=None, dest='gdb_phase',
-        metavar='PHASE',
-        help='Debug with gdbserver (spl, tpl, vpl; default: u-boot)')
+        '-g', action='store_true', default=False, dest='gdbserver_flag',
+        help='Debug with gdbserver (u-boot phase)')
+    parser.add_argument(
+        '--gdb-phase', default=None, dest='gdb_phase',
+        choices=['spl', 'tpl', 'vpl'],
+        help='Debug a specific phase with gdbserver (implies -g)')
     parser.add_argument(
         '-s', '--show-output', action='store_true',
         help='Show all test output in real-time (pytest -s)')
@@ -546,6 +549,14 @@ def parse_args(argv=None, prog_name=None):
     # Set extra_args for pytest command
     if hasattr(args, 'extra_args'):
         args.extra_args = extra_args
+
+    # Reconcile -g and --gdb-phase into gdb_phase
+    if hasattr(args, 'gdbserver_flag'):
+        if args.gdb_phase:
+            pass  # --gdb-phase already set
+        elif args.gdbserver_flag:
+            args.gdb_phase = 'u-boot'
+        del args.gdbserver_flag
 
     # Resolve aliases
     for full, aliases in ALIASES.items():

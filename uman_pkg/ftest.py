@@ -6551,7 +6551,7 @@ stages:
 
     def test_run_dry_run_gdb_spl(self):
         """Test dry-run with gdbserver for SPL"""
-        args = cmdline.parse_args(['-n', 'docker', '-g', 'spl'])
+        args = cmdline.parse_args(['-n', 'docker', '--gdb-phase', 'spl'])
         self.assertEqual('spl', args.gdb_phase)
         with terminal.capture() as (out, err):
             res = cmddocker.run(args)

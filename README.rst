@@ -220,7 +220,7 @@ artefacts have the correct ownership.
     uman docker -g -B sandbox_noinst test_spl
 
     # Debug SPL under gdbserver
-    uman docker -g spl -B sandbox_noinst test_spl
+    uman docker --gdb-phase spl -B sandbox_noinst test_spl
 
     # Override the Docker image
     uman docker -i my-registry/u-boot-ci:latest
@@ -233,7 +233,8 @@ artefacts have the correct ownership.
 - ``test_spec``: Test specification using pytest -k syntax (positional)
 - ``-a, --adjust-cfg CFG``: Adjust Kconfig setting (can use multiple times)
 - ``-B, --board BOARD``: Board name (default: sandbox)
-- ``-g [PHASE]``: Debug with gdbserver (see below; default: u-boot)
+- ``-g``: Debug with gdbserver (u-boot phase; see below)
+- ``--gdb-phase PHASE``: Debug a specific phase (spl, tpl, vpl)
 - ``-i, --image IMAGE``: Override Docker image (default: from .gitlab-ci.yml)
 - ``-I, --interactive``: Drop to a bash shell in the container
 - ``-s, --show-output``: Show all test output in real-time (pytest -s)
@@ -245,17 +246,17 @@ The ``-g`` flag enables gdbserver inside the Docker container. It installs
 gdbserver (as root), exposes port 1234, and prints instructions for
 connecting from another terminal.
 
-The optional PHASE argument selects which binary to debug:
+Use ``--gdb-phase`` to select which binary to debug:
 
-- ``-g`` or ``-g u-boot``: Debug the main U-Boot binary. A wrapper script
-  replaces ``u-boot`` so that gdbserver starts only after SPL has finished.
-  SPL runs normally, then exec's the wrapper which starts gdbserver on the
-  real ``u-boot`` binary. This avoids gdb's inability to follow exec calls
-  over remote debugging.
+- ``-g``: Debug the main U-Boot binary. A wrapper script replaces ``u-boot``
+  so that gdbserver starts only after SPL has finished. SPL runs normally,
+  then exec's the wrapper which starts gdbserver on the real ``u-boot``
+  binary. This avoids gdb's inability to follow exec calls over remote
+  debugging.
 
-- ``-g spl``: Debug SPL directly. Passes ``--gdbserver`` to test.py which
-  wraps the initial SPL binary with gdbserver. Use this when the problem is
-  in SPL itself.
+- ``--gdb-phase spl``: Debug SPL directly. Passes ``--gdbserver`` to test.py
+  which wraps the initial SPL binary with gdbserver. Use this when the
+  problem is in SPL itself.
 
 Workflow::
 
@@ -606,6 +607,7 @@ hooks to PATH.
 - ``--force-reconfig``: Force reconfiguration (use with -b)
 - ``--fresh``: Delete build dir before building (use with -b)
 - ``-g``: Run sandbox under gdbserver at localhost:1234
+- ``--gdb-phase PHASE``: Debug a specific phase (spl, tpl, vpl)
 - ``-G, --gdb``: Launch gdb-multiarch and connect to an existing gdbserver
 - ``-j, --jobs JOBS``: Number of parallel jobs (use with -b)
 - ``-l, --list``: List available QEMU and sandbox boards

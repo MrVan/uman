@@ -975,9 +975,8 @@ def run_with_gdb(args):
         print(' '.join(gdb_cmd))
         return 0
 
-    # Run gdb interactively
-    result = exec_cmd(gdb_cmd, dry_run=False, capture=False)
-    return result.return_code
+    # Replace this process with gdb so Ctrl-C is handled by gdb
+    os.execvp(gdb_cmd[0], gdb_cmd)
 
 
 def collect_tests(args):

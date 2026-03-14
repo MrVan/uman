@@ -10,7 +10,10 @@ containers for running Claude Code.
 
 import os
 import random
+import socket as socket_mod
 import string
+import subprocess
+import threading
 import time
 
 # pylint: disable=import-error
@@ -27,8 +30,18 @@ UBUNTU_HOME = '/home/ubuntu'
 # Project mount point inside the container
 PROJECT_DEST = f'{UBUNTU_HOME}/project'
 
+# Socket filename for editor proxy (in project directory)
+EDITOR_SOCK = '.uman-editor.sock'
+
+# Fixed mount point for PulseAudio socket inside the container
+PULSE_DEST = '/tmp/pulse-native'
+
+# ALSA config that routes through PulseAudio (suppresses hardware errors)
+ALSA_PULSE_CONF = '/etc/alsa-pulse.conf'
+
 # Default packages to install in containers
-DEFAULT_PACKAGES = 'build-essential pylint'
+DEFAULT_PACKAGES = ('build-essential gh glab libasound2-plugins'
+                     ' libsox-fmt-pulse pylint sox xclip')
 
 
 def get_log_path(name):
@@ -83,6 +96,20 @@ def get_essential_mounts(project_src):
             os.environ.get('UBOOT_TOOLS', '~/u/tools'))),
          f'{UBUNTU_HOME}/u/tools'),
     ]
+    patman_dir = os.path.join(home, 'dev', 'patman')
+    if os.path.isdir(patman_dir):
+        mounts.append(('patman', patman_dir, f'{UBUNTU_HOME}/dev/patman'))
+
+    # X11 socket for clipboard access (image paste in Claude Code)
+    x11_dir = '/tmp/.X11-unix'
+    if os.path.isdir(x11_dir):
+        mounts.append(('x11', x11_dir, x11_dir))
+
+    # PulseAudio socket for voice input (/voice in Claude Code)
+    pulse_sock = f'/run/user/{os.getuid()}/pulse/native'
+    if os.path.exists(pulse_sock):
+        mounts.append(('pulse', pulse_sock, PULSE_DEST))
+
     for fname, mname in [('.gitconfig', 'gitconfig'),
                           ('.buildman', 'buildman'),
                           ('.buildman-toolchains', 'toolchains')]:
@@ -117,6 +144,50 @@ def get_config_mounts():
         name, source, dest = parts
         source = os.path.expandvars(os.path.expanduser(source))
         mounts.append((name, source, dest))
+    return mounts
+
+
+def get_cli_mounts(mount_args):
+    """Parse -m/--mount command-line arguments into mount triples
+
+    Supports HOST:DEST or just HOST (mounted at the same path).
+
+    Args:
+        mount_args (list of str): Mount arguments from command line
+
+    Returns:
+        list of tuple: (name, src, dst) triples
+    """
+    if not mount_args:
+        return []
+
+    home = os.path.expanduser('~')
+    mounts = []
+    for i, arg in enumerate(mount_args):
+        parts = arg.split(':')
+        if len(parts) == 2:
+            src, dst = parts
+        elif len(parts) == 1:
+            src = dst = parts[0]
+        else:
+            tout.warning(f'Ignoring malformed mount: {arg}')
+            continue
+        src = os.path.expandvars(os.path.expanduser(src))
+        src = os.path.realpath(src)
+        # Expand ~ to the container home, not the host home
+        dst = os.path.expandvars(dst)
+        if dst.startswith('~'):
+            dst = UBUNTU_HOME + dst[1:]
+        elif dst.startswith(home):
+            dst = UBUNTU_HOME + dst[len(home):]
+        # Use the leaf directory as the device name, with a suffix if needed
+        leaf = os.path.basename(dst) or f'cli{i}'
+        name = leaf
+        suffix = 2
+        while any(m[0] == name for m in mounts):
+            name = f'{leaf}{suffix}'
+            suffix += 1
+        mounts.append((name, src, dst))
     return mounts
 
 
@@ -248,6 +319,21 @@ def create_container(name, base, dry_run=False):
                    f'{proc.stderr.decode("utf-8", errors="replace")}')
 
 
+def is_privileged(name):
+    """Check whether a container has privileged mode enabled
+
+    Args:
+        name (str): Container name
+
+    Returns:
+        bool: True if security.privileged is set to true
+    """
+    result = exec_cmd(
+        ['lxc', 'config', 'get', name, 'security.privileged'],
+        dry_run=False)
+    return result is not None and result.stdout.strip() == 'true'
+
+
 def has_mount(name, mount_name):
     """Check whether a container already has a named device
 
@@ -288,6 +374,24 @@ def add_mount(name, mount_name, source, path, dry_run=False, shift=False):
         *args, dry_run=dry_run)
 
 
+def remove_mount(name, mount_name, dry_run=False):
+    """Remove a disk device from a container
+
+    Args:
+        name (str): Container name
+        mount_name (str): Device name
+        dry_run (bool): If True, just show command
+
+    Returns:
+        bool: True if removed successfully
+    """
+    if not dry_run and not has_mount(name, mount_name):
+        tout.error(f'No device {mount_name!r} on container {name}')
+        return False
+    lxc('config', 'device', 'remove', name, mount_name, dry_run=dry_run)
+    return True
+
+
 def wait_for_user(name, dry_run=False):
     """Wait until the ubuntu user exists in the container
 
@@ -317,6 +421,10 @@ def setup_container(name, dry_run=False):
         dry_run (bool): If True, just show commands
     """
     lxc_exec(name, 'chown ubuntu:ubuntu /home/ubuntu', dry_run=dry_run)
+
+    # Suppress the Ubuntu sudo hint message
+    lxc_exec(name, 'touch /home/ubuntu/.sudo_as_admin_successful',
+             dry_run=dry_run, user='ubuntu')
 
     # Install terminfo from host
     if not dry_run:
@@ -397,10 +505,13 @@ def setup_uman(name, uboot_tools=None, dry_run=False):
     uman_dir = get_uman_dir()
     um_path = os.path.join(uman_dir, 'um')
     uman_bin = os.path.join(uman_dir, 'uman_pkg', 'uman')
+    patman = f'{UBUNTU_HOME}/dev/patman/tools/patman/patman'
     lxc_exec(name,
              f'mkdir -p ~/.local/bin && '
              f'ln -sf {uman_bin} {um_path} && '
-             f'ln -sf {uman_bin} ~/.local/bin/um',
+             f'ln -sf {uman_bin} ~/.local/bin/um && '
+             f'test -e {patman} && ln -sf {patman} ~/.local/bin/patman '
+             f'|| true',
              dry_run=dry_run, user='ubuntu')
     setup_cmd = (
         f'export PATH="$HOME/.local/bin:$HOME/bin:$PATH" && '
@@ -408,13 +519,68 @@ def setup_uman(name, uboot_tools=None, dry_run=False):
         f'{um_path} -q setup aliases -d ~/.local/bin -f')
     lxc_exec(name, setup_cmd, dry_run=dry_run, user='ubuntu')
 
+    # Write editor proxy script
+    editor_script = (
+        '#!/usr/bin/env python3\n'
+        'import json, os, socket, sys\n'
+        'path = os.path.abspath(sys.argv[1]) if len(sys.argv) > 1'
+        ' else sys.exit(1)\n'
+        f'sock_path = "{PROJECT_DEST}/{EDITOR_SOCK}"\n'
+        's = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)\n'
+        'try:\n'
+        '    s.connect(sock_path)\n'
+        'except OSError:\n'
+        '    sys.exit("editor proxy not running")\n'
+        f'if path.startswith("{PROJECT_DEST}/"):\n'
+        '    s.sendall((path + "\\n").encode())\n'
+        '    resp = s.recv(4096).decode().strip()\n'
+        'else:\n'
+        '    content = open(path).read() if os.path.exists(path) else ""\n'
+        '    ext = os.path.splitext(path)[1]\n'
+        '    msg = json.dumps({"content": content, "ext": ext}) + "\\n"\n'
+        '    s.sendall(msg.encode())\n'
+        '    resp_raw = b""\n'
+        '    while True:\n'
+        '        chunk = s.recv(65536)\n'
+        '        if not chunk:\n'
+        '            break\n'
+        '        resp_raw += chunk\n'
+        '    resp_data = json.loads(resp_raw.decode())\n'
+        '    if resp_data.get("error"):\n'
+        '        print(resp_data["error"], file=sys.stderr)\n'
+        '        sys.exit(1)\n'
+        '    open(path, "w").write(resp_data["content"])\n'
+        '    resp = "done"\n'
+        's.close()\n'
+        'if resp != "done":\n'
+        '    print(resp, file=sys.stderr)\n'
+        '    sys.exit(1)\n')
+    editor_path = f'{UBUNTU_HOME}/.local/bin/uman-editor'
+    write_editor = (
+        f"cat > {editor_path} <<'EDEOF'\n{editor_script}EDEOF\n"
+        f"chmod +x {editor_path}")
+    lxc_exec(name, write_editor, dry_run=dry_run, user='ubuntu')
+
+    # Write ALSA config that routes through PulseAudio
+    alsa_conf = 'pcm.!default { type pulse }\nctl.!default { type pulse }\n'
+    lxc_exec(name,
+             f"cat > {ALSA_PULSE_CONF} <<'ALSAEOF'\n{alsa_conf}ALSAEOF",
+             dry_run=dry_run)
+
     # Write ~/.uman_env with the full environment block
+    display = os.environ.get('DISPLAY', ':0')
     env_block = (
         '# uman setup — sourced by ~/.bashrc, ~/.profile and BASH_ENV\n'
         '[ "$_UMAN_ENV_LOADED" = 1 ] && return\n'
         '_UMAN_ENV_LOADED=1\n'
         'export PATH="$HOME/bin:$HOME/.local/bin:$PATH"\n'
         f'export UBOOT_TOOLS="{uboot_tools}"\n'
+        f'export DISPLAY="{display}"\n'
+        f'export EDITOR="{editor_path}"\n'
+        f'export PULSE_SERVER="unix:{PULSE_DEST}"\n'
+        'export AUDIODRIVER=pulseaudio\n'
+        f'export ALSA_CONFIG_PATH="{ALSA_PULSE_CONF}"\n'
+        'export PULSE_LATENCY_MSEC=50\n'
         'um() { b="$b" USRC="$USRC" command um "$@"; }\n'
         'eval "$(um git -a)"\n'
         'export BASH_ENV=~/.uman_env\n')
@@ -429,6 +595,106 @@ def setup_uman(name, uboot_tools=None, dry_run=False):
             f"grep -q '.uman_env' {rcfile} 2>/dev/null || "
             f"echo '{source_line}' >> {rcfile}")
         lxc_exec(name, add_cmd, dry_run=dry_run, user='ubuntu')
+
+
+def editor_listen(sock_path, project_src, host_editor, ready=None):
+    """Listen for editor requests from the container
+
+    Runs in a daemon thread. Accepts connections on a Unix socket.
+    For project paths, translates to host paths and opens the editor.
+    For non-project paths (e.g. /tmp), receives file content as JSON,
+    writes a temp file on the host, opens the editor, and sends back
+    the edited content.
+
+    Args:
+        sock_path (str): Path to the Unix socket file
+        project_src (str): Host-side project directory
+        host_editor (str): Host editor command
+        ready (threading.Event or None): Set when socket is bound
+    """
+    import json
+    import tempfile
+
+    sock = socket_mod.socket(socket_mod.AF_UNIX, socket_mod.SOCK_STREAM)
+    sock.bind(sock_path)
+    # Make socket world-writable so container user can connect
+    os.chmod(sock_path, 0o777)
+    sock.listen(1)
+    sock.settimeout(2)
+    if ready:
+        ready.set()
+    while True:
+        try:
+            conn, _ = sock.accept()
+        except socket_mod.timeout:
+            continue
+        except OSError:
+            break
+        try:
+            data = conn.recv(4096).decode().strip()
+            if not data:
+                continue
+
+            # Translate container path to host path
+            if data.startswith(PROJECT_DEST + '/'):
+                rel = data[len(PROJECT_DEST) + 1:]
+                host_path = os.path.join(project_src, rel)
+                subprocess.run([host_editor, host_path], check=False)
+                conn.sendall(b'done\n')
+            elif data.startswith(PROJECT_DEST):
+                subprocess.run([host_editor, project_src], check=False)
+                conn.sendall(b'done\n')
+            elif data.startswith('{'):
+                msg = json.loads(data)
+                ext = msg.get('ext', '.txt')
+                with tempfile.NamedTemporaryFile(
+                        mode='w', suffix=ext, delete=False) as tmp:
+                    tmp.write(msg['content'])
+                    tmp_path = tmp.name
+                try:
+                    subprocess.run([host_editor, tmp_path], check=False)
+                    with open(tmp_path) as fh:
+                        edited = fh.read()
+                    resp = json.dumps({'content': edited})
+                    conn.sendall(resp.encode())
+                finally:
+                    os.unlink(tmp_path)
+            else:
+                conn.sendall(b'error: path outside project\n')
+        except OSError:
+            pass
+        finally:
+            conn.close()
+
+
+def start_editor_proxy(project_src, dry_run=False):
+    """Start the editor proxy listener in a background thread
+
+    Args:
+        project_src (str): Host-side project directory
+        dry_run (bool): If True, just show what would happen
+
+    Returns:
+        str: Path to the socket file
+    """
+    sock_path = os.path.join(project_src, EDITOR_SOCK)
+    if dry_run:
+        tout.notice(f'# editor proxy: {sock_path}')
+        return sock_path
+
+    # Remove stale socket
+    if os.path.exists(sock_path):
+        os.unlink(sock_path)
+
+    host_editor = os.environ.get('EDITOR', 'vi')
+    ready = threading.Event()
+    thread = threading.Thread(target=editor_listen,
+                              args=(sock_path, project_src, host_editor,
+                                    ready),
+                              daemon=True)
+    thread.start()
+    ready.wait()
+    return sock_path
 
 
 def launch_shell(name, shell_command=None, dry_run=False, log_file=None):
@@ -519,7 +785,7 @@ def list_containers():
     """List uman containers (those with a datadir device)
 
     Returns:
-        list of tuple: (name, status, project) triples
+        list of tuple: (name, status, project, privileged) 4-tuples
     """
     result = exec_cmd(['lxc', 'list', '--format', 'csv', '-c', 'ns'],
                        dry_run=False)
@@ -534,18 +800,23 @@ def list_containers():
         if len(parts) >= 2:
             project = get_project(parts[0])
             if project:
-                containers.append((parts[0], parts[1], project))
+                priv = is_privileged(parts[0])
+                containers.append((parts[0], parts[1], project, priv))
     return containers
 
 
-def add_all_mounts(name, project_src, dry_run=False):
-    """Add all mounts (essential, git symlink, and config) to a container
+def add_all_mounts(name, project_src, mount_args=None, output=False,
+                   no_output=False, dry_run=False):
+    """Add all mounts (essential, git symlink, config, CLI) to a container
 
     Skips any devices that already exist.
 
     Args:
         name (str): Container name
         project_src (str): Absolute path to the project source directory
+        mount_args (list of str): Mount arguments from -m flag
+        output (bool): If True, mount /tmp/b into the container
+        no_output (bool): If True, remove /tmp/b mount
         dry_run (bool): If True, just show commands
     """
     for mname, source, dest in get_essential_mounts(project_src):
@@ -562,14 +833,19 @@ def add_all_mounts(name, project_src, dry_run=False):
     if git_mount:
         add_mount(name, *git_mount, dry_run)
 
-    # Mount container /tmp/b to host /tmp/<name>/b for easy access
-    tmp_dir = f'/tmp/{name}/b'
-    os.makedirs(tmp_dir, exist_ok=True)
-    new_tmpb = not dry_run and not has_mount(name, 'tmpb')
-    add_mount(name, 'tmpb', tmp_dir, '/tmp/b', dry_run)
-    if new_tmpb and container_status(name) == 'RUNNING':
-        tout.notice(
-            f'Added /tmp/b mount; activate with: uman cc -R {name}')
+    # Mount /tmp/b if requested, or remove if -O
+    if output:
+        tmp_dir = '/tmp/b'
+        os.makedirs(tmp_dir, exist_ok=True)
+        new_tmpb = not dry_run and not has_mount(name, 'tmpb')
+        add_mount(name, 'tmpb', tmp_dir, '/tmp/b', dry_run)
+        if new_tmpb and container_status(name) == 'RUNNING':
+            tout.notice(
+                f'Added /tmp/b mount; activate with: uman cc -R {name}')
+    elif no_output:
+        if not dry_run and has_mount(name, 'tmpb'):
+            remove_mount(name, 'tmpb')
+            tout.notice('Removed /tmp/b mount')
 
     pbuilder = '/var/cache/pbuilder'
     if os.path.isdir(pbuilder):
@@ -577,6 +853,9 @@ def add_all_mounts(name, project_src, dry_run=False):
                   shift=True)
 
     for mname, source, dest in get_config_mounts():
+        add_mount(name, mname, source, dest, dry_run)
+
+    for mname, source, dest in get_cli_mounts(mount_args):
         add_mount(name, mname, source, dest, dry_run)
 
 
@@ -609,10 +888,54 @@ def show_containers():
         tout.notice('No uman containers found')
     else:
         home = os.path.expanduser('~')
-        for cname, status, project in containers:
+        for cname, status, project, priv in containers:
             if project.startswith(home):
                 project = '~' + project[len(home):]
-            tout.notice(f'{cname}  {status:8s}  {project}')
+            flags = ' [privileged]' if priv else ''
+            tout.notice(f'{cname}  {status:8s}  {project}{flags}')
+    return 0
+
+
+def show_mounts(name):
+    """List mounts for a container
+
+    Args:
+        name (str): Container name
+
+    Returns:
+        int: Exit code
+    """
+    result = exec_cmd(['lxc', 'config', 'device', 'show', name],
+                       dry_run=False)
+    if not result or result.return_code:
+        tout.error(f'Container not found: {name}')
+        return 1
+
+    home = os.path.expanduser('~')
+    mounts = []
+    cur_name = None
+    source = path = None
+    for line in result.stdout.splitlines():
+        if not line.startswith(' '):
+            if cur_name and source and path:
+                mounts.append((cur_name, source, path))
+            cur_name = line.rstrip(':')
+            source = path = None
+        elif 'source:' in line:
+            source = line.split(':', 1)[1].strip()
+        elif 'path:' in line:
+            path = line.split(':', 1)[1].strip()
+    if cur_name and source and path:
+        mounts.append((cur_name, source, path))
+
+    if not mounts:
+        tout.notice(f'No mounts for {name}')
+        return 0
+
+    for mname, source, path in mounts:
+        if source.startswith(home):
+            source = '~' + source[len(home):]
+        print(f'  {mname:14s} {source} -> {path}')
     return 0
 
 
@@ -630,6 +953,27 @@ def run(args):  # pylint: disable=too-many-locals,too-many-branches,too-many-sta
     """
     if args.list_containers:
         return show_containers()
+
+    if args.mounts:
+        name = args.name or os.path.basename(os.path.realpath(os.getcwd()))
+        return show_mounts(name)
+
+    if args.mount and not args.shell:
+        name = args.name or os.path.basename(os.path.realpath(os.getcwd()))
+        if not args.dry_run and not container_exists(name):
+            tout.error(f'Container not found: {name}')
+            return 1
+        for mname, source, dest in get_cli_mounts(args.mount):
+            add_mount(name, mname, source, dest, args.dry_run)
+            tout.notice(f'Mounted {source} -> {dest} ({mname})')
+        return 0
+
+    if args.unmount:
+        name = args.name or os.path.basename(os.path.realpath(os.getcwd()))
+        if not args.dry_run and not container_exists(name):
+            tout.error(f'Container not found: {name}')
+            return 1
+        return 0 if remove_mount(name, args.unmount, args.dry_run) else 1
 
     if args.delete:
         if not args.name:
@@ -684,11 +1028,13 @@ def run(args):  # pylint: disable=too-many-locals,too-many-branches,too-many-sta
     else:
         tout.notice(f'Container: {name}')
 
+    sock_path = os.path.join(project_src, EDITOR_SOCK)
     try:
         if not existed:
             create_container(name, base, dry_run)
 
-        add_all_mounts(name, project_src, dry_run)
+        add_all_mounts(name, project_src, args.mount, args.output,
+                       args.no_output, dry_run)
 
         if args.restart and existed:
             status = container_status(name)
@@ -697,7 +1043,70 @@ def run(args):  # pylint: disable=too-many-locals,too-many-branches,too-many-sta
                 lxc('stop', name)
             existed = False
 
+        if args.privileged:
+            lxc('config', 'set', '-q', name, 'security.privileged=true',
+                dry_run=dry_run)
+            lxc('config', 'set', '-q', name, 'raw.idmap=',
+                dry_run=dry_run)
+            raw_lxc = ('lxc.apparmor.profile=unconfined\n'
+                       'lxc.seccomp.profile=')
+            lxc('config', 'set', '-q', name, 'raw.lxc', raw_lxc,
+                dry_run=dry_run)
+            lxc('config', 'set', '-q', name,
+                'security.nesting=true', dry_run=dry_run)
+            tout.notice('Enabled privileged mode')
+            if existed and not dry_run:
+                status = container_status(name)
+                if status == 'RUNNING':
+                    tout.notice(
+                        f'Restart needed: um cc -R {name}')
+                    return 0
+        elif args.no_privileged:
+            uid = str(os.getuid())
+            gid = str(os.getgid())
+            idmap = f'uid {uid} 1000\ngid {gid} 1000'
+            lxc('config', 'set', '-q', name,
+                'security.privileged=false', dry_run=dry_run)
+            lxc('config', 'set', '-q', name, 'raw.lxc=',
+                dry_run=dry_run)
+            lxc('config', 'set', '-q', name,
+                'security.nesting=false', dry_run=dry_run)
+            if not dry_run:
+                subprocess.run(
+                    ['lxc', 'config', 'set', '-q', name, 'raw.idmap', '-'],
+                    input=idmap.encode(), check=False, capture_output=True)
+            else:
+                tout.notice(
+                    f'printf {idmap!r} | lxc config set -q {name} raw.idmap -')
+            tout.notice('Disabled privileged mode')
+            if existed and not dry_run:
+                status = container_status(name)
+                if status == 'RUNNING':
+                    tout.notice('Restarting container')
+                    lxc('stop', name)
+                existed = False
+        elif existed and not dry_run:
+            if is_privileged(name):
+                tout.notice(
+                    'Running in privileged mode (device-mapper enabled)')
+
         ensure_running(name, existed, dry_run)
+
+        # In privileged mode, uid namespacing is disabled, so the
+        # container's ubuntu user (uid 1000) won't match the host uid.
+        # Fix this by changing ubuntu's uid/gid to match the host.
+        if args.privileged:
+            uid = os.getuid()
+            gid = os.getgid()
+            lxc_exec(name,
+                      f'usermod -u {uid} ubuntu; groupmod -g {gid} ubuntu;'
+                      f' chown -R {uid}:{gid} /home/ubuntu',
+                      dry_run=dry_run)
+        elif args.no_privileged:
+            lxc_exec(name,
+                      'usermod -u 1000 ubuntu; groupmod -g 1000 ubuntu;'
+                      ' chown -R 1000:1000 /home/ubuntu',
+                      dry_run=dry_run)
 
         # Wait for user and set up (idempotent operations)
         wait_for_user(name, dry_run)
@@ -705,6 +1114,17 @@ def run(args):  # pylint: disable=too-many-locals,too-many-branches,too-many-sta
         install_tools(name, packages, dry_run)
         install_claude(name, dry_run)
         setup_uman(name, uboot_tools, dry_run)
+
+        # Check X11 access for clipboard (image paste)
+        if not dry_run and os.path.isdir('/tmp/.X11-unix'):
+            result = exec_cmd(['xhost'], dry_run=False)
+            if result and 'LOCAL:' not in result.stdout:
+                tout.notice(
+                    'For clipboard access (image paste): '
+                    'xhost +local:')
+
+        # Start editor proxy so Ctrl-G opens the host editor
+        sock_path = start_editor_proxy(project_src, dry_run)
 
         # Launch
         log_file = get_log_path(name)
@@ -716,6 +1136,10 @@ def run(args):  # pylint: disable=too-many-locals,too-many-branches,too-many-sta
             launch_claude(name, args.cont, dry_run, log_file)
 
     finally:
+        # Clean up editor socket
+        if os.path.exists(sock_path):
+            os.unlink(sock_path)
+
         # Only delete ephemeral containers that we created
         if not keep and not existed:
             delete_container(name, dry_run)

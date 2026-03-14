@@ -8,15 +8,18 @@
 import os
 import sys
 
-# Allow imports to work when run as module
+# Use the embedded u_boot_pylib by putting uman's parent first on
+# sys.path, so it takes priority over any older version in the U-Boot
+# tree's tools/ directory.  Set UMAN_EXTERNAL_PYLIB=1 to use the
+# UBOOT_TOOLS version instead (for testing newer versions).
 our_path = os.path.dirname(os.path.realpath(__file__))
 parent_path = os.path.dirname(our_path)
-sys.path.append(parent_path)
-
-# Get U-Boot tools path from UBOOT_TOOLS env var (default: ~/u/tools)
-# This is separate from USRC which specifies the U-Boot source to work in
-uboot_tools = os.path.expanduser(os.environ.get('UBOOT_TOOLS', '~/u/tools'))
-sys.path.append(uboot_tools)
+if os.environ.get('UMAN_EXTERNAL_PYLIB'):
+    uboot_tools = os.path.expanduser(
+        os.environ.get('UBOOT_TOOLS', '~/u/tools'))
+    sys.path.insert(0, uboot_tools)
+else:
+    sys.path.insert(0, parent_path)
 
 # pylint: disable=import-error,wrong-import-position
 from uman_pkg import cmdline

@@ -5,6 +5,11 @@
 uman - U-Boot Manager
 =====================
 
+.. note::
+
+   Parts of this code and documentation were written with AI assistance.
+   Review all changes carefully before relying on them.
+
 This is a simple tool to handle common tasks when developing U-Boot,
 including pushing to CI, running tests, and setting up firmware dependencies.
 
@@ -22,6 +27,9 @@ Subcommands
 
 ``ci``
     Push current branch to GitLab CI with configurable test stages
+
+``docker`` (alias: ``d``)
+    Run U-Boot tests in the same Docker container used by CI
 
 ``pytest`` (alias: ``py``)
     Run U-Boot's test.py framework with automatic environment setup
@@ -181,6 +189,96 @@ run), not fine-grained selection of specific boards or test specifications.
 For precise targeting like ``-p coreboot`` or ``-t "test_ofplatdata"``, use
 regular CI pushes instead of merge requests.
 
+Docker Subcommand
+-----------------
+
+The ``docker`` command (alias ``d``) runs U-Boot tests inside the same Docker
+image used by GitLab CI. It parses ``.gitlab-ci.yml`` from the U-Boot tree to
+determine the Docker image and build/test script, so the local test environment
+matches CI exactly.
+
+The container bind-mounts the U-Boot source directory (from ``$USRC`` or the
+current directory) at ``/source`` and runs as the current user, so build
+artefacts have the correct ownership.
+
+::
+
+    # Run all sandbox tests (board defaults to sandbox)
+    uman docker
+
+    # Run specific tests
+    uman docker test_ofplatdata or test_handoff
+
+    # Test a different board
+    uman docker -B sandbox_noinst test_ofplatdata
+
+    # Stop on first failure, show output
+    uman docker -x -s test_dm
+
+    # Adjust Kconfig before building
+    uman docker -a CONFIG_TRACE test_trace
+
+    # Drop to an interactive shell in the container
+    uman docker -I
+
+    # Debug u-boot under gdbserver
+    uman docker -g -B sandbox_noinst test_spl
+
+    # Debug SPL under gdbserver
+    uman docker --gdb-phase spl -B sandbox_noinst test_spl
+
+    # Override the Docker image
+    uman docker -i my-registry/u-boot-ci:latest
+
+    # Dry-run to see the docker command
+    uman -n docker -B sandbox test_dm
+
+**Options**:
+
+- ``test_spec``: Test specification using pytest -k syntax (positional)
+- ``-a, --adjust-cfg CFG``: Adjust Kconfig setting (can use multiple times)
+- ``-B, --board BOARD``: Board name (default: sandbox)
+- ``-g``: Debug with gdbserver (u-boot phase; see below)
+- ``--gdb-phase PHASE``: Debug a specific phase (spl, tpl, vpl)
+- ``-i, --image IMAGE``: Override Docker image (default: from .gitlab-ci.yml)
+- ``-I, --interactive``: Drop to a bash shell in the container
+- ``-s, --show-output``: Show all test output in real-time (pytest -s)
+- ``-x, --exitfirst``: Stop on first test failure
+
+**Debugging with GDB**:
+
+The ``-g`` flag enables gdbserver inside the Docker container. It installs
+gdbserver (as root), exposes port 1234, and prints instructions for
+connecting from another terminal.
+
+Use ``--gdb-phase`` to select which binary to debug:
+
+- ``-g``: Debug the main U-Boot binary. A wrapper script replaces ``u-boot``
+  so that gdbserver starts only after SPL has finished. SPL runs normally,
+  then exec's the wrapper which starts gdbserver on the real ``u-boot``
+  binary. This avoids gdb's inability to follow exec calls over remote
+  debugging.
+
+- ``--gdb-phase spl``: Debug SPL directly. Passes ``--gdbserver`` to test.py
+  which wraps the initial SPL binary with gdbserver. Use this when the
+  problem is in SPL itself.
+
+Workflow::
+
+    # Terminal 1: start tests with gdbserver
+    uman docker -g -B sandbox_noinst test_spl
+
+    # Terminal 2: connect gdb (after "Listening on port 1234" appears)
+    um py -G -B sandbox_noinst
+    (gdb) c
+
+The ``-G`` flag in ``um py`` launches ``gdb-multiarch``, loads symbols from
+the local build (``/tmp/b/<board>/u-boot``), and connects to
+``localhost:1234``. SIGUSR2 is automatically silenced since sandbox uses it
+internally for coroutine setup. Type ``c`` to continue execution; tests then
+proceed normally. Set breakpoints before continuing to catch specific code
+paths.
+
 CC Subcommand
 -------------
 
@@ -188,6 +286,19 @@ The ``cc`` command creates an LXC container for running Claude Code. It mounts
 the current directory as a project, installs build tools and Claude Code, and
 sets up uman aliases inside the container. The container name defaults to the
 current directory name and is permanent. Use ``-e`` for a throwaway container.
+
+**Prerequisites**:
+
+LXD must be installed and initialised::
+
+    sudo snap install lxd
+    lxd init --minimal
+
+Add your user to the ``lxd`` group if not already a member::
+
+    sudo usermod -aG lxd $USER
+
+Log out and back in for the group change to take effect.
 
 ::
 
@@ -215,6 +326,19 @@ current directory name and is permanent. Use ``-e`` for a throwaway container.
     # Delete a container
     uman cc -d mybox
 
+    # Mount extra host directories
+    uman cc -m /opt/data
+    uman cc -m /opt/data:/mnt/data
+
+    # List mounts for a container
+    uman cc -M mybox
+
+    # Remove a mount (use -M to see device names)
+    uman cc -u data mybox
+
+    # Enable device-mapper for LUKS encryption tests
+    uman cc -p
+
     # Dry-run to see what would be executed
     uman -n cc
 
@@ -230,9 +354,17 @@ idempotent setup steps.
 - ``-d, --delete``: Delete the named container
 - ``-e, --ephemeral``: Use a random name and delete on exit
 - ``-l, --list``: List existing uman containers with project paths
+- ``-m, --mount PATH``: Mount a host directory (see **Mounts** below)
+- ``-M, --mounts``: List mounts for the container
+- ``-o, --output``: Mount ``/tmp/b`` into the container
+- ``-O, --no-output``: Remove the ``/tmp/b`` mount
+- ``-u, --unmount NAME``: Remove a mount by device name (see ``-M`` for names)
 - ``-r, --rename NEW``: Rename the named container
 - ``-R, --restart``: Restart the container before launching
 - ``-S, --stop``: Stop a running container
+- ``-p, --privileged``: Enable privileged mode for device-mapper (e.g. LUKS tests);
+  if the container is already running, prints a message about restarting
+- ``-P, --no-privileged``: Disable privileged mode (auto-restarts and restores uid)
 - ``-s, --shell [CMD]``: Open interactive shell, or run CMD in container
 
 **Console Logging**:
@@ -247,6 +379,43 @@ For example: ``~/files/dev/uman-logs/paperman/2026/Feb/log-26.02feb.21-143022.lo
 The log path is printed at launch. The ``-q`` flag suppresses script's own
 start/done messages so only the session content is captured.
 
+**Clipboard (Image Paste)**:
+
+The X11 socket is mounted into the container and ``xclip`` is installed so
+that Claude Code can access the clipboard for image paste (Ctrl-V). The host
+must allow local X11 connections::
+
+    xhost +local:
+
+This is checked at launch and a reminder is printed if not set. Add the
+command to ``~/.bashrc`` to make it permanent. For existing containers,
+install xclip manually: ``sudo apt-get install -yqq xclip``
+
+**Editor Proxy**:
+
+An editor proxy runs on the host so that Ctrl-G in Claude Code opens the host
+``$EDITOR``. For files inside the project, the container path is translated to
+the host path. For other files (e.g. temp files created by Ctrl-G for prompt
+editing), the content is transferred over the socket and a host temp file is
+used.
+
+**Voice Input**:
+
+The PulseAudio socket is mounted into the container and ``sox`` is installed
+so that Claude Code's ``/voice`` command can access the host microphone. For
+existing containers, install sox manually:
+``sudo apt-get install -yqq sox libsox-fmt-pulse libasound2-plugins``
+
+**GitHub / GitLab CLI**:
+
+The ``gh`` and ``glab`` CLI tools are installed for managing pull requests and
+CI pipelines. Authenticate on first use::
+
+    gh auth login
+    glab auth login
+
+Credentials are stored inside the container and persist across restarts.
+
 **Essential Mounts** (always added):
 
 - ``datadir``: Current directory to ``/home/ubuntu/project``
@@ -258,11 +427,29 @@ start/done messages so only the session content is captured.
 - ``hostbin``: ``~/bin`` for host scripts
 - ``uman``: Uman install directory (so ``~/bin`` symlinks work)
 - ``uboottools``: U-Boot tools directory (``$UBOOT_TOOLS`` or ``~/u/tools``)
+- ``patman``: ``~/dev/patman`` for patch workflows (if present)
+- ``pulse``: PulseAudio socket for voice input (if present)
+- ``x11``: ``/tmp/.X11-unix`` for clipboard access (if present)
 - ``tmpb``: Container ``/tmp/b`` to ``/tmp/<name>/b`` on the host
 - ``buildman``: ``~/.buildman`` (if present)
 - ``toolchains``: ``~/.buildman-toolchains`` (if present)
 - ``pbuilder``: ``/var/cache/pbuilder`` (if present), with uid/gid shift
 - ``dotgit``: If ``.git`` is a symlink, the real target is mounted
+
+**Mounts** (``-m``):
+
+The ``-m`` flag mounts a host directory into the container. It accepts
+``HOST:DEST`` or just ``HOST`` (mounted at the same path). It can be repeated
+for multiple mounts::
+
+    uman cc -m ~/dev/linux          # mount at /home/ubuntu/dev/linux
+    uman cc -m /opt/data:/mnt/data  # mount at /mnt/data
+
+Used alone, ``-m`` adds the mount without entering the container. Combine with
+``-s`` to also enter a shell. Tilde (``~``) in the destination expands to the
+container home (``/home/ubuntu``) rather than the host home. The device name is
+derived from the leaf directory (e.g. ``linux`` for ``~/dev/linux``) and is
+shown on success.
 
 **Configuration** (``~/.uman``):
 
@@ -293,7 +480,7 @@ making it easier to step through commits during development.
 - ``cms`` / ``commit-signoff``: Commit with signoff (git commit --signoff)
 - ``co`` / ``checkout``: Checkout (switch branches or restore files)
 - ``db`` / ``diff-branch`` [BRANCH]: Diff current commit files against upstream (or BRANCH)
-- ``dh`` / ``diff-head`` [N] [FILES...]: Show diff using difftool (git difftool HEAD~ or HEAD~N)
+- ``di`` / ``diff-head`` [N] [FILES...]: Show diff using difftool (git difftool HEAD~ or HEAD~N)
 - ``eg`` / ``errno-grep`` PATTERN: Search include/linux/errno.h for error codes
 - ``et`` / ``edit-todo``: Edit the rebase todo list
 - ``fa`` / ``find-all`` [N]: Check all branches against us/master (default 5 commits each)
@@ -516,6 +703,7 @@ hooks to PATH.
 - ``--force-reconfig``: Force reconfiguration (use with -b)
 - ``--fresh``: Delete build dir before building (use with -b)
 - ``-g``: Run sandbox under gdbserver at localhost:1234
+- ``--gdb-phase PHASE``: Debug a specific phase (spl, tpl, vpl)
 - ``-G, --gdb``: Launch gdb-multiarch and connect to an existing gdbserver
 - ``-j, --jobs JOBS``: Number of parallel jobs (use with -b)
 - ``-l, --list``: List available QEMU and sandbox boards
@@ -528,6 +716,8 @@ hooks to PATH.
 - ``-T, --trace``: Enable function tracing; adds CONFIG_TRACE and
   CONFIG_TRACE_EARLY (use with -b)
 - ``--no-trace-early``: Disable TRACE_EARLY when using -T (use with -b)
+- ``--malloc-dump FILE``: Write malloc heap dump on exit; ``%d`` in the filename
+  is expanded to a sequence number
 - ``--no-timeout``: Disable test timeout
 - ``-x, --exitfirst``: Stop on first test failure
 - ``--pollute TEST``: Find which test pollutes TEST
@@ -656,6 +846,9 @@ without going through pytest. This is faster for quick iteration on C code.
     # Run test using pytest-style name (ut_<suite>_<test>)
     uman test ut_bootstd_bootflow
 
+    # Run tests matching a wildcard pattern
+    uman test 'dm.adj*'
+
     # List available suites
     uman test -s
 
@@ -674,6 +867,8 @@ without going through pytest. This is faster for quick iteration on C code.
 - ``-l, --list``: List available tests
 - ``-L, --lto``: Enable LTO when building (use with -b)
 - ``--legacy``: Use legacy result parsing (for old U-Boot)
+- ``--malloc-dump FILE``: Write malloc heap dump on exit; ``%d`` in the filename
+  is expanded to a sequence number
 - ``-m, --manual``: Force manual tests to run (tests with _norun suffix)
 - ``-o, --output-dir DIR``: Override build directory (use with -b)
 - ``-r, --results``: Show per-test pass/fail status
@@ -847,17 +1042,18 @@ Settings are stored in ``~/.uman`` (created on first run)::
 Environment Variables
 ~~~~~~~~~~~~~~~~~~~~~
 
+``UMAN_EXTERNAL_PYLIB``
+    Set to ``1`` to use u_boot_pylib from ``UBOOT_TOOLS`` instead of the
+    embedded copy. Useful for testing against a newer version of the library.
+
 ``UBOOT_TOOLS``
     Path to U-Boot tools directory containing Python libraries (u_boot_pylib,
-    patman, buildman, etc.). This is used for importing Python modules.
+    patman, buildman, etc.). Only used when ``UMAN_EXTERNAL_PYLIB=1``.
     Default: ``~/u/tools``
 
 ``USRC``
     Path to U-Boot source tree to work in. If not set, uman expects to be run
     from within a U-Boot source tree.
-
-These are separate: ``UBOOT_TOOLS`` specifies where to find Python imports,
-while ``USRC`` specifies the U-Boot source tree to build/test.
 
 Self-testing
 ------------

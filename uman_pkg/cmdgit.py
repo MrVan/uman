@@ -97,6 +97,8 @@ def show_rebase_status(output, return_code=0):
                 label = 'empty commit'
             tout.notice(f'Rebasing{pos_str} {label} {match.group(1)}... '
                         f'{match.group(2)}')
+        else:
+            tout.error(output.strip())
 
 
 def show_rb_status():
@@ -133,9 +135,16 @@ def seq_edit_env(action, line=1):
     """
     env = os.environ.copy()
     if action == 'break':
-        env['GIT_SEQUENCE_EDITOR'] = f'sed -i "{line}i break"'
+        script = (f"import sys; p=sys.argv[1]; "
+                  f"lines=open(p).readlines(); "
+                  f"lines.insert({line - 1},'break\\n'); "
+                  f"open(p,'w').writelines(lines)")
     else:  # edit
-        env['GIT_SEQUENCE_EDITOR'] = f'sed -i "{line}s/^pick/edit/"'
+        script = (f"import sys,re; p=sys.argv[1]; "
+                  f"lines=open(p).readlines(); "
+                  f"lines[{line - 1}]=re.sub(r'^pick','edit',lines[{line - 1}]); "
+                  f"open(p,'w').writelines(lines)")
+    env['GIT_SEQUENCE_EDITOR'] = f'python3 -c "{script}"'
     return env
 
 
@@ -1354,7 +1363,7 @@ GIT_ACTIONS = [
     GitAction('cms', 'commit-signoff', 'Commit with signoff', do_cms),
     GitAction('co', 'checkout', 'Checkout (switch branches/restore)', do_co),
     GitAction('db', 'diff-branch', 'Diff commit files against upstream', do_db),
-    GitAction('dh', 'diff-head', 'Show diff of top commit', do_dh),
+    GitAction('di', 'diff-head', 'Show diff of top commit', do_dh),
     GitAction('eg', 'errno-grep', 'Search errno.h for error codes', do_eg),
     GitAction('et', 'edit-todo', 'Edit rebase todo list', do_et),
     GitAction('g', 'status', 'Show short status', do_g),
@@ -1407,7 +1416,7 @@ SIMPLE_ALIASES = {
     'cms': 'git commit -s',
     'co': 'git checkout',
     'cs': 'git show',
-    'dh': 'git difftool HEAD~',
+    'di': 'git difftool HEAD~',
     'g': 'git status -sb',
     'gb': 'git branch',
     'gba': 'git branch -a',

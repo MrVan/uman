@@ -39,6 +39,7 @@ def get_git_action_names():
 ALIASES = {
     'claude-code': ['cc'],
     'config': ['cfg'],
+    'docker': ['d'],
     'git': ['g'],
     'selftest': ['st'],
     'pytest': ['py'],
@@ -91,10 +92,41 @@ def add_claude_code_subparser(subparsers):
     cc.add_argument('-l', '--list', action='store_true',
                     dest='list_containers',
                     help='List existing uman containers with project paths')
+    cc.add_argument('-m', '--mount', action='append', metavar='PATH',
+                    help='Mount a host directory (PATH or HOST:DEST)')
+    cc.add_argument('-M', '--mounts', action='store_true',
+                    help='List mounts for the container')
+    cc.add_argument('-u', '--unmount', metavar='NAME',
+                    help='Remove a mount by device name (see -M)')
+    cc.add_argument('-o', '--output', action='store_true',
+                    help='Mount /tmp/b into the container')
+    cc.add_argument('-O', '--no-output', action='store_true',
+                    help='Remove /tmp/b mount from the container')
+    cc.add_argument('-p', '--privileged', action='store_true',
+                    help='Enable privileged mode (e.g. LUKS tests)')
+    cc.add_argument('-P', '--no-privileged', action='store_true',
+                    help='Disable privileged mode')
     cc.add_argument('-s', '--shell', nargs='?', const=True,
                     default=False,
                     help='Open shell or run a command in container')
     return cc
+
+
+def add_docker_subparser(subparsers):
+    """Add the 'docker' subparser"""
+    dtest = subparsers.add_parser(
+        'docker', aliases=ALIASES['docker'],
+        help='Run U-Boot tests in CI Docker container')
+    add_test_opts(dtest, board_help='Board name (default: sandbox)',
+                  board_default='sandbox')
+    dtest.add_argument('-a', '--adjust-cfg', action='append',
+                       metavar='CFG', dest='adjust_cfg',
+                       help='Adjust Kconfig (can use multiple times)')
+    dtest.add_argument('-i', '--image', metavar='IMAGE',
+                       help='Override Docker image')
+    dtest.add_argument('-I', '--interactive', action='store_true',
+                       help='Drop to shell in container')
+    return dtest
 
 
 def add_ci_subparser(subparsers):
@@ -145,34 +177,67 @@ def add_selftest_subparser(subparsers):
     return stest
 
 
+def add_test_opts(parser, board_help=None, board_default=None):
+    """Add common test options to a parser
+
+    Args:
+        parser: Argument parser to add options to
+        board_help (str or None): Help text for -B flag
+        board_default (str or None): Default board value
+    """
+    parser.add_argument(
+        'test_spec', type=str, nargs='*',
+        help="Test specification (e.g. 'test_dm', 'not sleep')")
+    parser.add_argument(
+        '-B', '--board', metavar='BOARD', default=board_default,
+        help=board_help or 'Board name to test')
+    parser.add_argument(
+        '-g', action='store_true', default=False, dest='gdbserver_flag',
+        help='Debug with gdbserver (u-boot phase)')
+    parser.add_argument(
+        '--gdb-phase', default=None, dest='gdb_phase',
+        choices=['spl', 'tpl', 'vpl'],
+        help='Debug a specific phase with gdbserver (implies -g)')
+    parser.add_argument(
+        '-s', '--show-output', action='store_true',
+        help='Show all test output in real-time (pytest -s)')
+    parser.add_argument(
+        '-x', '--exitfirst', action='store_true',
+        help='Stop on first test failure')
+    parser.add_argument(
+        '--malloc-dump', metavar='FILE', dest='malloc_dump',
+        help='Write malloc dump to FILE on exit (use %%d for sequence number)')
+
+
 def add_build_opts(parser):
     """Add common build options to a parser
 
     Args:
         parser: Argument parser to add options to
     """
-    parser.add_argument(
+    group = parser.add_argument_group('build options')
+    group.add_argument(
         '-a', '--adjust-cfg', action='append', metavar='CFG', dest='adjust_cfg',
         help='Adjust Kconfig setting (use with -b; can use multiple times)')
-    parser.add_argument(
+    group.add_argument(
         '-f', '--force-reconfig', action='store_true',
         help='Force reconfiguration (use with -b)')
-    parser.add_argument(
+    group.add_argument(
         '-F', '--fresh', action='store_true',
         help='Delete build dir before building (use with -b)')
-    parser.add_argument(
+    group.add_argument(
         '-j', '--jobs', type=int, metavar='JOBS',
         help='Number of parallel jobs for build (use with -b)')
-    parser.add_argument(
+    group.add_argument(
         '-L', '--lto', action='store_true',
         help='Enable LTO when building (use with -b)')
-    parser.add_argument(
+    group.add_argument(
         '-o', '--output-dir', metavar='DIR', dest='output_dir',
         help='Override build directory (use with -b)')
-    parser.add_argument(
+    group.add_argument(
         '-T', '--trace', action='store_true',
         help='Enable function tracing (use with -b)')
-    parser.add_argument(
+    group.add_argument(
         '--no-trace-early', action='store_true', dest='no_trace_early',
         help='Disable TRACE_EARLY when using -T (use with -b)')
 
@@ -182,15 +247,11 @@ def add_pytest_subparser(subparsers):
     pyt = subparsers.add_parser(
         'pytest', aliases=ALIASES['pytest'],
         help='Run pytest tests for U-Boot')
-    pyt.add_argument(
-        'test_spec', type=str, nargs='*',
-        help="Test specification (e.g. 'test_dm', 'not sleep')")
+    add_test_opts(pyt,
+                  board_help='Board name to test (required; use -l to list QEMU boards)')
     pyt.add_argument(
         '-b', '--build', action='store_true',
         help='Build U-Boot before running tests')
-    pyt.add_argument(
-        '-B', '--board', metavar='BOARD',
-        help='Board name to test (required; use -l to list QEMU boards)')
     pyt.add_argument(
         '-c', '--show-cmd', action='store_true',
         help='Show QEMU command line without running tests')
@@ -204,9 +265,6 @@ def add_pytest_subparser(subparsers):
         '--find', metavar='PATTERN',
         help='Find tests matching PATTERN and show full IDs')
     pyt.add_argument(
-        '-g', action='store_const', const='localhost:1234', dest='gdbserver',
-        help='Start gdbserver (wait for gdb client to connect)')
-    pyt.add_argument(
         '-G', '--gdb', action='store_true',
         help='Launch gdb client (connect to existing gdbserver from -g)')
     pyt.add_argument(
@@ -219,9 +277,6 @@ def add_pytest_subparser(subparsers):
         '-q', '--quiet', action='store_true',
         help='Quiet mode: only show build output, progress, and result')
     pyt.add_argument(
-        '-s', '--show-output', action='store_true',
-        help='Show all test output in real-time (pytest -s)')
-    pyt.add_argument(
         '-S', '--setup-only', action='store_true',
         help='Run only fixture setup (create test images) without tests')
     pyt.add_argument(
@@ -231,9 +286,6 @@ def add_pytest_subparser(subparsers):
     pyt.add_argument(
         '--no-timeout', action='store_true',
         help='Disable test timeout')
-    pyt.add_argument(
-        '-x', '--exitfirst', action='store_true',
-        help='Stop on first test failure')
     pyt.add_argument(
         '--pollute', metavar='TEST',
         help='Find which test pollutes TEST (causes it to fail)')
@@ -300,7 +352,10 @@ def add_setup_subparser(subparsers):
         'setup', help='Build firmware blobs needed for testing')
     setup.add_argument(
         'component', type=str, nargs='?', default=None,
-        help="Component to build (e.g. 'opensbi'), or omit to build all")
+        help="Component to set up (e.g. 'opensbi', 'remote'), or omit for all")
+    setup.add_argument(
+        'host', type=str, nargs='?', default=None,
+        help="Hostname for 'remote' component (e.g. user@host)")
     setup.add_argument(
         '-d', '--alias-dir', metavar='DIR',
         help='Directory for aliases symlinks (default: ~/bin)')
@@ -345,6 +400,9 @@ def add_test_subparser(subparsers):
     test.add_argument(
         '-s', '--suites', action='store_true', dest='list_suites',
         help='List available test suites')
+    test.add_argument(
+        '--malloc-dump', metavar='FILE', dest='malloc_dump',
+        help='Write malloc dump to FILE on exit (use %%d for sequence number)')
     test.add_argument(
         '-V', '--test-verbose', action='store_true', dest='test_verbose',
         help='Enable verbose test output')
@@ -437,6 +495,7 @@ def setup_parser():
     add_claude_code_subparser(subparsers)
     add_ci_subparser(subparsers)
     add_config_subparser(subparsers)
+    add_docker_subparser(subparsers)
     add_git_subparser(subparsers)
     add_selftest_subparser(subparsers)
     add_pytest_subparser(subparsers)
@@ -504,6 +563,14 @@ def parse_args(argv=None, prog_name=None):
     # Set extra_args for pytest command
     if hasattr(args, 'extra_args'):
         args.extra_args = extra_args
+
+    # Reconcile -g and --gdb-phase into gdb_phase
+    if hasattr(args, 'gdbserver_flag'):
+        if args.gdb_phase:
+            pass  # --gdb-phase already set
+        elif args.gdbserver_flag:
+            args.gdb_phase = 'u-boot'
+        del args.gdbserver_flag
 
     # Resolve aliases
     for full, aliases in ALIASES.items():

@@ -9,10 +9,12 @@ in sandbox.
 """
 
 from collections import namedtuple
+import fnmatch
 import os
 import re
 import shlex
 import struct
+import sys
 import time
 
 # pylint: disable=import-error
@@ -38,6 +40,8 @@ RE_DATA_REL_RO = re.compile(
 # Patterns for parsing test output
 RE_TEST_NAME = re.compile(r'Test:\s*(\S+)')
 RE_RESULT = re.compile(r'Result:\s*(PASS|FAIL|SKIP):?\s+(\S+)')
+RE_SUMMARY = re.compile(r'Tests run:\s*(\d+),.*failures:\s*(\d+)')
+RE_TEST_FAILED = re.compile(r"Test '.+' failed \d+ times")
 
 # Unit test flags from include/test/test.h
 UTF_FLAT_TREE = 0x08
@@ -366,7 +370,7 @@ def resolve_specs(sandbox, specs):
                 all_tests = get_tests_from_nm(sandbox)
             found = False
             for test_suite, test_name in all_tests:
-                if test_name.endswith(pattern):
+                if fnmatch.fnmatch(test_name, f'*{pattern}'):
                     resolved.append((test_suite, pattern))
                     found = True
                     break  # Only add first match
@@ -400,7 +404,7 @@ def validate_specs(sandbox, specs):
             if pattern is None:
                 found = True
                 break
-            if test_name.endswith(pattern):
+            if fnmatch.fnmatch(test_name, f'*{pattern}'):
                 found = True
                 break
         if not found:
@@ -409,8 +413,40 @@ def validate_specs(sandbox, specs):
     return unmatched
 
 
+def has_no_flat():
+    """Check whether the U-Boot tree supports the -F sandbox flag
+
+    Looks for 'noflat' in arch/sandbox/cpu/start.c in the current directory.
+
+    Returns:
+        bool: True if -F is supported
+    """
+    start_c = os.path.join('arch', 'sandbox', 'cpu', 'start.c')
+    try:
+        with open(start_c, encoding='utf-8') as inf:
+            return 'noflat' in inf.read()
+    except OSError:
+        return False
+
+
+def has_emit_result():
+    """Check whether the U-Boot tree supports the -E ut flag
+
+    Looks for 'emit_result' in test/cmd_ut.c in the current directory.
+
+    Returns:
+        bool: True if -E is supported
+    """
+    cmd_ut = os.path.join('test', 'cmd_ut.c')
+    try:
+        with open(cmd_ut, encoding='utf-8') as inf:
+            return 'emit_result' in inf.read()
+    except OSError:
+        return False
+
+
 def build_ut_cmd(sandbox, specs, full=False, verbose=False, legacy=False,
-                 manual=False):
+                 manual=False, malloc_dump=None):
     """Build the sandbox command line for running tests
 
     Args:
@@ -420,14 +456,18 @@ def build_ut_cmd(sandbox, specs, full=False, verbose=False, legacy=False,
         verbose (bool): Enable verbose test output
         legacy (bool): Legacy mode (don't use -E flag for older U-Boot)
         manual (bool): Force manual tests to run
+        malloc_dump (str or None): File to write malloc dump to on exit
 
     Returns:
         list: Command and arguments
     """
     cmd = [sandbox, '-T']
 
+    if malloc_dump:
+        cmd.extend(['--malloc_dump', malloc_dump.replace('%d', '0')])
+
     # Add -F to skip flat-tree tests (live-tree only) unless full mode
-    if not full:
+    if not full and has_no_flat():
         cmd.append('-F')
 
     # Add -v to sandbox to show test output
@@ -437,7 +477,7 @@ def build_ut_cmd(sandbox, specs, full=False, verbose=False, legacy=False,
     # Build ut commands from specs; use -E to emit Result: lines
     # Flags must come before suite name
     flags = ''
-    if not legacy:
+    if not legacy and has_emit_result():
         flags += '-E '
     if manual:
         flags += '-m '
@@ -489,7 +529,9 @@ def parse_legacy_results(output, show_results=False, col=None):
 
     for line in output.splitlines():
         name_match = RE_TEST_NAME.search(line)
-        name = name_match.group(1) if name_match else None
+        if not name_match:
+            continue
+        name = name_match.group(1)
         lower = line.lower()
 
         if '... ok' in lower:
@@ -509,6 +551,26 @@ def parse_legacy_results(output, show_results=False, col=None):
     if not passed and not failed and not skipped:
         return None
     return TestCounts(passed, failed, skipped)
+
+
+def parse_summary(output):
+    """Parse 'Tests run:' summary line from test output
+
+    Handles the format: Tests run: N, Xms, average: Xms, failures: N
+
+    Args:
+        output (str): Test output from sandbox
+
+    Returns:
+        TestCounts or None: Counts of passed/failed/skipped, or None if none
+    """
+    for line in output.splitlines():
+        match = RE_SUMMARY.match(line)
+        if match:
+            total = int(match.group(1))
+            failed = int(match.group(2))
+            return TestCounts(total - failed, failed, 0)
+    return None
 
 
 def parse_results(output, show_results=False, col=None):
@@ -544,6 +606,110 @@ def parse_results(output, show_results=False, col=None):
     return TestCounts(passed, failed, skipped)
 
 
+def count_tests(sandbox, specs):
+    """Count expected tests for the given specs
+
+    Args:
+        sandbox (str): Path to sandbox executable
+        specs (list): List of (suite, pattern) tuples
+
+    Returns:
+        int: Number of matching tests, or 0 if unknown
+    """
+    total = 0
+    for suite, pattern in specs:
+        if suite == 'all':
+            return len(get_tests_from_nm(sandbox))
+        tests = get_tests_from_nm(sandbox, suite)
+        if pattern:
+            total += sum(1 for _, name in tests if name.endswith(pattern))
+        else:
+            total += len(tests)
+    return total
+
+
+class Progress:
+    """Show live test progress on stderr
+
+    Parses sandbox output as it arrives and displays a running count of
+    passed/failed/skipped tests, updating in place with carriage return.
+
+    With -E (emit_result=True): counts Result: PASS/FAIL/SKIP lines.
+    Without -E: counts Test: lines as passes, detects failure lines like
+    "Test '<name>' failed N times" to adjust the count.
+    """
+
+    def __init__(self, emit_result, total=0):
+        self.emit = emit_result
+        self.total = total
+        self.passed = 0
+        self.failed = 0
+        self.skipped = 0
+        self.buf = ''
+        self.pending = False  # A Test: line seen, not yet resolved
+
+    def _show(self):
+        """Print the progress line, overwriting the previous one"""
+        col = terminal.Color()
+        grn = col.start(terminal.Color.GREEN)
+        red = col.start(terminal.Color.RED)
+        yel = col.start(terminal.Color.YELLOW)
+        rst = col.stop()
+        done = self.passed + self.failed + self.skipped
+        if self.total:
+            hdr = f'{done}/{self.total}:'
+        else:
+            hdr = f'{done}:'
+        sys.stderr.write(
+            f'\r  {hdr} {grn}{self.passed} passed{rst}, '
+            f'{red}{self.failed} failed{rst}, '
+            f'{yel}{self.skipped} skipped{rst}')
+        sys.stderr.flush()
+
+    def _process_line(self, line):
+        """Process one complete line of output"""
+        if self.emit:
+            match = RE_RESULT.match(line)
+            if match:
+                status = match.group(1)
+                if status == 'PASS':
+                    self.passed += 1
+                elif status == 'FAIL':
+                    self.failed += 1
+                elif status == 'SKIP':
+                    self.skipped += 1
+                self._show()
+        else:
+            if RE_TEST_FAILED.search(line):
+                self.failed += 1
+                self.pending = False
+                self._show()
+            elif RE_TEST_NAME.match(line):
+                if self.pending:
+                    self.passed += 1
+                self.pending = True
+                self._show()
+
+    def update(self, _stream, data):  # pylint: disable=W9016,W9019
+        """output_func callback for command.run_pipe()"""
+        if isinstance(data, (bytes, bytearray)):
+            data = data.decode('utf-8', errors='replace')
+        self.buf += data
+        while '\n' in self.buf:
+            line, self.buf = self.buf.split('\n', 1)
+            self._process_line(line)
+
+    def finish(self):
+        """Close out the progress line"""
+        if not self.emit and self.pending:
+            self.passed += 1
+            self.pending = False
+        if self.passed or self.failed or self.skipped:
+            self._show()
+            sys.stderr.write('\n')
+            sys.stderr.flush()
+
+
 def run_tests(sandbox, specs, args, col):  # pylint: disable=R0914
     """Run sandbox tests
 
@@ -562,7 +728,8 @@ def run_tests(sandbox, specs, args, col):  # pylint: disable=R0914
 
     cmd = build_ut_cmd(sandbox, specs, full=args.flattree_too,
                        verbose=args.test_verbose, legacy=args.legacy,
-                       manual=args.manual)
+                       manual=args.manual,
+                       malloc_dump=args.malloc_dump)
 
     if args.dry_run:
         tout.notice(shlex.join(cmd))
@@ -576,9 +743,19 @@ def run_tests(sandbox, specs, args, col):  # pylint: disable=R0914
     env = os.environ.copy()
     env['U_BOOT_PERSISTENT_DATA_DIR'] = persist_dir
 
+    # Show live progress if stderr is a terminal
+    emit = has_emit_result()
+    if sys.stderr.isatty():
+        total = count_tests(sandbox, specs)
+        progress = Progress(emit, total)
+    else:
+        progress = None
+    output_func = progress.update if progress else None
+
     start_time = time.time()
     try:
-        result = command.run_one(*cmd, capture=True, env=env)
+        result = command.run_one(*cmd, capture=True, env=env,
+                                 output_func=output_func)
     except command.CommandExc as exc:
         # Tests may fail but still produce parseable output
         result = exc.result
@@ -587,6 +764,9 @@ def run_tests(sandbox, specs, args, col):  # pylint: disable=R0914
         if not result:
             tout.error(f'Command failed: {exc}')
             return 1
+    finally:
+        if progress:
+            progress.finish()
     elapsed = time.time() - start_time
 
     # Detect old U-Boot that doesn't understand -E or -F flags
@@ -598,10 +778,13 @@ def run_tests(sandbox, specs, args, col):  # pylint: disable=R0914
         return 1
 
     # Parse results first to check for failures
+    legacy = args.legacy or not has_emit_result()
     res = parse_results(result.stdout, show_results=args.results, col=col)
-    if not res and args.legacy:
+    if not res and legacy:
         res = parse_legacy_results(result.stdout, show_results=args.results,
                                    col=col)
+    if not res:
+        res = parse_summary(result.stdout)
 
     # Print output in verbose mode, if there are failures, or no results
     if result.stdout and not args.results:

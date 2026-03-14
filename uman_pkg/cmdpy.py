@@ -461,12 +461,16 @@ def build_pytest_cmd(args):
         cmd.append('--setup-only')
     if args.persist:
         cmd.append('--persist')
-    if args.gdbserver:
-        cmd.extend(['--gdbserver', args.gdbserver])
+    gdb_channel = args.gdbserver or (
+        'localhost:1234' if args.gdb_phase else None)
+    if gdb_channel:
+        cmd.extend(['--gdbserver', gdb_channel])
     if args.exitfirst:
         cmd.append('-x')
     if not args.flattree_too and has_no_full():
         cmd.append('--no-full')
+    if args.malloc_dump:
+        cmd.extend(['--malloc-dump', args.malloc_dump])
 
     # Add extra pytest arguments (after --)
     if args.extra_args:
@@ -954,7 +958,7 @@ def run_with_gdb(args):
         return 1
 
     # Get gdbserver channel
-    channel = args.gdbserver or 'localhost:1234'
+    channel = getattr(args, 'gdbserver', None) or 'localhost:1234'
 
     # Build gdb command
     gdb_cmd = [
@@ -964,6 +968,7 @@ def run_with_gdb(args):
         '-iex', 'set auto-load safe-path /',  # Auto-load .gdbinit
         '-iex', 'set debuginfod enabled off',  # Disable debuginfod prompts
         '-iex', 'set sysroot',  # Suppress remote file transfer warnings
+        '-iex', 'handle SIGUSR2 nostop noprint pass',  # Used by sandbox coroutines
         '-ex', f'target remote {channel}',
     ]
 
@@ -971,9 +976,8 @@ def run_with_gdb(args):
         print(' '.join(gdb_cmd))
         return 0
 
-    # Run gdb interactively
-    result = exec_cmd(gdb_cmd, dry_run=False, capture=False)
-    return result.return_code
+    # Replace this process with gdb so Ctrl-C is handled by gdb
+    os.execvp(gdb_cmd[0], gdb_cmd)
 
 
 def collect_tests(args):
@@ -1323,9 +1327,9 @@ def do_pytest(args):  # pylint: disable=too-many-return-statements,too-many-bran
         tout.notice('Try: uman setup qemu')
         return 1
 
-    # Handle -G: set gdbserver if not already set
-    if args.gdb and not args.gdbserver:
-        args.gdbserver = 'localhost:1234'
+    # Handle -G: set gdb_phase if not already set
+    if args.gdb and not args.gdb_phase:
+        args.gdb_phase = 'u-boot'
 
     # Build with um if requested, rather than letting pytest do it
     if args.build:
@@ -1347,7 +1351,7 @@ def do_pytest(args):  # pylint: disable=too-many-return-statements,too-many-bran
         args.build = False  # Don't build again in pytest
 
     # Show -G command hint when using -g (not in dry-run mode)
-    if args.gdbserver and not args.gdb and not args.dry_run:
+    if args.gdb_phase and not args.gdb and not args.dry_run:
         tout.notice(f'In another terminal: um py -G -B {args.board}')
 
     pytest_vars = pytest_env(args.board)

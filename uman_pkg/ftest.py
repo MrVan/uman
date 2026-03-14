@@ -21,8 +21,8 @@ from u_boot_pylib import tools
 from u_boot_pylib import tout
 import gitlab
 
-from uman_pkg import (build, cc, cmdconfig, cmdgit, cmdline, cmdpy, cmdtest,
-                      control, gitlab_parser, settings, setup, util)
+from uman_pkg import (build, cc, cmdconfig, cmddocker, cmdgit, cmdline, cmdpy,
+                      cmdtest, control, gitlab_parser, settings, setup, util)
 
 # Capture stdout and stderr for silent command execution
 CAPTURE = {'capture': True, 'capture_stderr': True}
@@ -133,10 +133,12 @@ def make_args(**kwargs):
         'flattree_too': False,
         'fresh': False,
         'gdb': False,
+        'gdb_phase': None,
         'gdbserver': None,
         'jobs': None,
         'list_boards': False,
         'lto': False,
+        'malloc_dump': None,
         'merge': False,
         'no_timeout': False,
         'null': False,
@@ -1152,20 +1154,39 @@ class TestGitSubcommand(TestBase):
         self.assertEqual('', pos)
 
     def test_seq_edit_env_break(self):
-        """Test seq_edit_env creates break command"""
+        """Test seq_edit_env inserts a break"""
         env = cmdgit.seq_edit_env('break')
         self.assertIn('GIT_SEQUENCE_EDITOR', env)
-        self.assertEqual('sed -i "1i break"', env['GIT_SEQUENCE_EDITOR'])
+        todo = os.path.join(self.test_dir, 'todo')
+        with open(todo, 'w', encoding='utf-8') as fil:
+            fil.write('pick abc First\npick def Second\n')
+        os.system(f'{env["GIT_SEQUENCE_EDITOR"]} {todo}')
+        with open(todo, encoding='utf-8') as fil:
+            self.assertEqual('break\npick abc First\npick def Second\n',
+                             fil.read())
 
     def test_seq_edit_env_edit(self):
-        """Test seq_edit_env creates edit command"""
+        """Test seq_edit_env changes pick to edit"""
         env = cmdgit.seq_edit_env('edit')
-        self.assertEqual('sed -i "1s/^pick/edit/"', env['GIT_SEQUENCE_EDITOR'])
+        todo = os.path.join(self.test_dir, 'todo')
+        with open(todo, 'w', encoding='utf-8') as fil:
+            fil.write('pick abc First\npick def Second\n')
+        os.system(f'{env["GIT_SEQUENCE_EDITOR"]} {todo}')
+        with open(todo, encoding='utf-8') as fil:
+            self.assertEqual('edit abc First\npick def Second\n',
+                             fil.read())
 
     def test_seq_edit_env_edit_line(self):
         """Test seq_edit_env with specific line number"""
-        env = cmdgit.seq_edit_env('edit', 3)
-        self.assertEqual('sed -i "3s/^pick/edit/"', env['GIT_SEQUENCE_EDITOR'])
+        env = cmdgit.seq_edit_env('edit', 2)
+        todo = os.path.join(self.test_dir, 'todo')
+        with open(todo, 'w', encoding='utf-8') as fil:
+            fil.write('pick abc First\npick def Second\npick ghi Third\n')
+        os.system(f'{env["GIT_SEQUENCE_EDITOR"]} {todo}')
+        with open(todo, encoding='utf-8') as fil:
+            self.assertEqual(
+                'pick abc First\nedit def Second\npick ghi Third\n',
+                fil.read())
 
     def test_show_rebase_status_success(self):
         """Test show_rebase_status parses success message"""
@@ -1745,7 +1766,7 @@ class TestGitSubcommand(TestBase):
 
     def test_do_dh(self):
         """Test do_dh runs git difftool HEAD~"""
-        args = cmdline.parse_args(['git', 'dh'])
+        args = cmdline.parse_args(['git', 'di'])
         with mock.patch('u_boot_pylib.command.run_one') as mock_run:
             mock_run.return_value = mock.Mock(return_code=0)
             result = cmdgit.do_dh(args)
@@ -1755,7 +1776,7 @@ class TestGitSubcommand(TestBase):
 
     def test_do_dh_with_count(self):
         """Test do_dh N runs git difftool HEAD~N"""
-        args = cmdline.parse_args(['git', 'dh', '3'])
+        args = cmdline.parse_args(['git', 'di', '3'])
         with mock.patch('u_boot_pylib.command.run_one') as mock_run:
             mock_run.return_value = mock.Mock(return_code=0)
             result = cmdgit.do_dh(args)
@@ -1765,7 +1786,7 @@ class TestGitSubcommand(TestBase):
 
     def test_do_dh_with_file(self):
         """Test do_dh with file path passes it to difftool"""
-        args = cmdline.parse_args(['git', 'dh', 'some/file.c'])
+        args = cmdline.parse_args(['git', 'di', 'some/file.c'])
         with mock.patch('u_boot_pylib.command.run_one') as mock_run:
             mock_run.return_value = mock.Mock(return_code=0)
             result = cmdgit.do_dh(args)
@@ -1776,7 +1797,7 @@ class TestGitSubcommand(TestBase):
 
     def test_do_dh_with_count_and_file(self):
         """Test do_dh N file passes both to difftool"""
-        args = cmdline.parse_args(['git', 'dh', '2', 'some/file.c'])
+        args = cmdline.parse_args(['git', 'di', '2', 'some/file.c'])
         with mock.patch('u_boot_pylib.command.run_one') as mock_run:
             mock_run.return_value = mock.Mock(return_code=0)
             result = cmdgit.do_dh(args)
@@ -2059,7 +2080,7 @@ class TestGitSubcommand(TestBase):
         self.assertEqual(('rebase', '-i', 'origin/main'), cap[0])
         self.assertIn('GIT_SEQUENCE_EDITOR', cap_env[0])
         # rb inserts a break before first commit to stop at upstream
-        self.assertIn("1i break", cap_env[0]['GIT_SEQUENCE_EDITOR'])
+        self.assertIn("insert(0,'break", cap_env[0]['GIT_SEQUENCE_EDITOR'])
 
     def test_do_rf_no_arg(self):
         """Test do_rf without arg uses upstream"""
@@ -2081,7 +2102,8 @@ class TestGitSubcommand(TestBase):
                     result = cmdgit.do_rf(args)
         self.assertEqual(0, result.return_code)
         self.assertEqual(('rebase', '-i', 'origin/main'), cap[0])
-        self.assertIn("1s/^pick/edit/", cap_env[0]['GIT_SEQUENCE_EDITOR'])
+        self.assertIn("re.sub(r'^pick','edit',lines[0])",
+                      cap_env[0]['GIT_SEQUENCE_EDITOR'])
 
     def test_do_rf_with_count(self):
         """Test do_rf with commit count"""
@@ -2168,7 +2190,7 @@ class TestGitRebase(TestBase, GitRepoMixin):
         self.assertEqual(('rebase', '-i', 'upstream'), call_args[0])
         # Check that GIT_SEQUENCE_EDITOR inserts break before first commit
         env = call_args[1]['env']
-        self.assertIn("1i break", env['GIT_SEQUENCE_EDITOR'])
+        self.assertIn("insert(0,'break", env['GIT_SEQUENCE_EDITOR'])
 
     def test_rf_with_count(self):
         """Test rf N rebases last N commits, stopping at first"""
@@ -2181,7 +2203,8 @@ class TestGitRebase(TestBase, GitRepoMixin):
         call_args = mock_git.call_args
         self.assertEqual(('rebase', '-i', 'HEAD~3'), call_args[0])
         env = call_args[1]['env']
-        self.assertIn("1s/^pick/edit/", env['GIT_SEQUENCE_EDITOR'])
+        self.assertIn("re.sub(r'^pick','edit',lines[0])",
+                      env['GIT_SEQUENCE_EDITOR'])
 
     def test_rp_stops_at_patch_n(self):
         """Test rp N stops at patch N"""
@@ -2194,7 +2217,8 @@ class TestGitRebase(TestBase, GitRepoMixin):
         call_args = mock_git.call_args
         self.assertEqual(('rebase', '-i', 'upstream'), call_args[0])
         env = call_args[1]['env']
-        self.assertIn("2s/^pick/edit/", env['GIT_SEQUENCE_EDITOR'])
+        self.assertIn("re.sub(r'^pick','edit',lines[1])",
+                      env['GIT_SEQUENCE_EDITOR'])
 
     def test_real_rf_and_rc(self):
         """Test a real rf followed by rc to complete rebase"""
@@ -3424,7 +3448,7 @@ qemu_binary="nonexistent-qemu-xyz"
     def test_pytest_gdb_dry_run(self):
         """Test pytest -G with dry-run prints gdb command"""
         args = make_args(cmd='pytest', board='sandbox',
-                         gdbserver='localhost:1234',
+                         gdb_phase='u-boot',
                          gdb=True, dry_run=True)
 
         # Mock subprocess.run to capture what would be run
@@ -3436,6 +3460,7 @@ qemu_binary="nonexistent-qemu-xyz"
         self.assertIn('gdb-multiarch', output)
         self.assertIn('/tmp/b/sandbox/u-boot', output)
         self.assertIn('target remote localhost:1234', output)
+        self.assertIn('handle SIGUSR2 nostop noprint pass', output)
 
     def test_get_uboot_dir_current(self):
         """Test get_uboot_dir finds U-Boot in current directory"""
@@ -4019,6 +4044,134 @@ class TestCcSubcommand(TestBase):  # pylint: disable=R0904
         finally:
             os.path.expanduser = orig_expanduser
 
+    def test_get_cli_mounts_none(self):
+        """Test get_cli_mounts with no arguments"""
+        self.assertEqual([], cc.get_cli_mounts(None))
+
+    def test_get_cli_mounts_host_only(self):
+        """Test get_cli_mounts with host path only"""
+        mounts = cc.get_cli_mounts(['/opt/data'])
+        self.assertEqual(1, len(mounts))
+        self.assertEqual('data', mounts[0][0])
+        self.assertEqual('/opt/data', mounts[0][1])
+        self.assertEqual('/opt/data', mounts[0][2])
+
+    def test_get_cli_mounts_host_dest(self):
+        """Test get_cli_mounts with host:dest format"""
+        mounts = cc.get_cli_mounts(['/opt/data:/mnt/data'])
+        self.assertEqual(1, len(mounts))
+        self.assertEqual('data', mounts[0][0])
+        self.assertEqual('/opt/data', mounts[0][1])
+        self.assertEqual('/mnt/data', mounts[0][2])
+
+    def test_get_cli_mounts_expands_tilde(self):
+        """Test get_cli_mounts maps ~ to container home"""
+        mounts = cc.get_cli_mounts(['~/dev/u-boot'])
+        home = os.path.expanduser('~')
+        self.assertEqual(f'{home}/dev/u-boot', mounts[0][1])
+        self.assertEqual('/home/ubuntu/dev/u-boot', mounts[0][2])
+
+    def test_get_cli_mounts_dest_tilde(self):
+        """Test get_cli_mounts maps ~ in dest to container home"""
+        mounts = cc.get_cli_mounts(['/opt/data:~/data'])
+        self.assertEqual('/opt/data', mounts[0][1])
+        self.assertEqual('/home/ubuntu/data', mounts[0][2])
+
+    def test_get_cli_mounts_multiple(self):
+        """Test get_cli_mounts with multiple mounts"""
+        mounts = cc.get_cli_mounts(['/opt/a', '/opt/b:/mnt/b'])
+        self.assertEqual(2, len(mounts))
+        self.assertEqual('a', mounts[0][0])
+        self.assertEqual('/opt/a', mounts[0][1])
+        self.assertEqual('b', mounts[1][0])
+        self.assertEqual('/mnt/b', mounts[1][2])
+
+    def test_get_cli_mounts_duplicate_leaf(self):
+        """Test get_cli_mounts adds suffix for duplicate leaf names"""
+        mounts = cc.get_cli_mounts(['/opt/data', '/mnt/data'])
+        self.assertEqual(2, len(mounts))
+        self.assertEqual('data', mounts[0][0])
+        self.assertEqual('data2', mounts[1][0])
+
+    def test_show_mounts(self):
+        """Test show_mounts parses lxc device output"""
+        yaml = ('datadir:\n'
+                '  path: /home/ubuntu/project\n'
+                '  source: /home/sglass/dev/myproj\n'
+                '  type: disk\n'
+                'hostbin:\n'
+                '  path: /home/ubuntu/bin\n'
+                '  source: /home/sglass/bin\n'
+                '  type: disk\n')
+        result = command.CommandResult(return_code=0, stdout=yaml)
+        with mock.patch.object(cc, 'exec_cmd', return_value=result):
+            with terminal.capture() as (out, err):
+                ret = cc.show_mounts('mybox')
+        self.assertEqual(0, ret)
+        self.assertIn('datadir', out.getvalue())
+        self.assertIn('/home/ubuntu/project', out.getvalue())
+        self.assertFalse(err.getvalue())
+
+    def test_show_mounts_not_found(self):
+        """Test show_mounts with missing container"""
+        result = command.CommandResult(return_code=1, stdout='')
+        with mock.patch.object(cc, 'exec_cmd', return_value=result):
+            with terminal.capture() as (out, err):
+                ret = cc.show_mounts('nobox')
+        self.assertEqual(1, ret)
+        self.assertIn('not found', err.getvalue())
+        self.assertFalse(out.getvalue())
+
+    def test_mount_only(self):
+        """Test -m without -s just adds the mount and exits"""
+        args = cmdline.parse_args(['cc', '-m', '/opt/data', 'mybox'])
+        with mock.patch.object(cc, 'container_exists', return_value=True):
+            with mock.patch.object(cc, 'add_mount') as mock_add:
+                with terminal.capture() as (out, err):
+                    ret = cc.run(args)
+        self.assertEqual(0, ret)
+        mock_add.assert_called_once_with(
+            'mybox', 'data', '/opt/data', '/opt/data', False)
+        self.assertIn('/opt/data -> /opt/data (data)', out.getvalue())
+
+    def test_mount_only_no_container(self):
+        """Test -m fails if the container does not exist"""
+        args = cmdline.parse_args(['cc', '-m', '/opt/data', 'mybox'])
+        with mock.patch.object(cc, 'container_exists', return_value=False):
+            with terminal.capture() as (out, err):
+                ret = cc.run(args)
+        self.assertEqual(1, ret)
+        self.assertIn('not found', err.getvalue())
+
+    def test_unmount(self):
+        """Test -u removes a mount device"""
+        args = cmdline.parse_args(['-n', 'cc', '-u', 'linux', 'mybox'])
+        with terminal.capture() as (out, err):
+            ret = cc.run(args)
+        self.assertEqual(0, ret)
+        self.assertIn('lxc config device remove', out.getvalue())
+        self.assertIn('linux', out.getvalue())
+
+    def test_unmount_missing(self):
+        """Test -u fails if the device does not exist"""
+        args = cmdline.parse_args(['cc', '-u', 'nosuch', 'mybox'])
+        result = command.CommandResult(return_code=1, stdout='', stderr='')
+        with mock.patch.object(cc, 'container_exists', return_value=True):
+            with mock.patch.object(cc, 'has_mount', return_value=False):
+                with terminal.capture() as (out, err):
+                    ret = cc.run(args)
+        self.assertEqual(1, ret)
+        self.assertIn('nosuch', err.getvalue())
+
+    def test_unmount_no_container(self):
+        """Test -u fails if the container does not exist"""
+        args = cmdline.parse_args(['cc', '-u', 'linux', 'mybox'])
+        with mock.patch.object(cc, 'container_exists', return_value=False):
+            with terminal.capture() as (out, err):
+                ret = cc.run(args)
+        self.assertEqual(1, ret)
+        self.assertIn('not found', err.getvalue())
+
     def test_get_git_symlink_mount_no_symlink(self):
         """Test get_git_symlink_mount when .git is not a symlink"""
         # Create a regular .git directory
@@ -4059,9 +4212,8 @@ class TestCcSubcommand(TestBase):  # pylint: disable=R0904
             self.assertNotIn('lxc delete', output)
             self.assertIn('test-cc', output)
             self.assertNotIn('--continue', output)
-            # /tmp/b mount
-            self.assertIn('tmpb', output)
-            self.assertIn('path=/tmp/b', output)
+            # /tmp/b mount not present without -o
+            self.assertNotIn('tmpb', output)
             # uman env written and sourced
             self.assertIn('.uman_env', output)
             self.assertIn('.bashrc', output)
@@ -4122,6 +4274,88 @@ class TestCcSubcommand(TestBase):  # pylint: disable=R0904
             self.assertIn('lxc start', output)
         finally:
             os.path.expanduser = orig_expanduser
+
+    def test_editor_proxy(self):
+        """Test editor proxy translates paths and opens host editor"""
+        import socket as socket_mod
+
+        project_src = self.test_dir
+        opened = []
+        orig_run = subprocess.run
+        subprocess.run = lambda cmd, **kw: opened.append(cmd)
+
+        sock_path = cc.start_editor_proxy(project_src)
+        try:
+            self.assertTrue(os.path.exists(sock_path))
+
+            # Connect and send a container path
+            sock = socket_mod.socket(socket_mod.AF_UNIX,
+                                     socket_mod.SOCK_STREAM)
+            sock.connect(sock_path)
+            sock.sendall(f'{cc.PROJECT_DEST}/foo.c\n'.encode())
+            resp = sock.recv(4096).decode().strip()
+            sock.close()
+
+            self.assertEqual('done', resp)
+            self.assertEqual(1, len(opened))
+            self.assertEqual(os.path.join(project_src, 'foo.c'),
+                             opened[0][1])
+        finally:
+            subprocess.run = orig_run
+            if os.path.exists(sock_path):
+                os.unlink(sock_path)
+
+    def test_editor_proxy_content_transfer(self):
+        """Test editor proxy handles non-project paths via content"""
+        import json
+        import socket as socket_mod
+
+        project_src = self.test_dir
+        opened = []
+        orig_run = subprocess.run
+        subprocess.run = lambda cmd, **kw: opened.append(cmd)
+
+        sock_path = cc.start_editor_proxy(project_src)
+        try:
+            sock = socket_mod.socket(socket_mod.AF_UNIX,
+                                     socket_mod.SOCK_STREAM)
+            sock.connect(sock_path)
+            msg = json.dumps({'content': 'hello', 'ext': '.txt'}) + '\n'
+            sock.sendall(msg.encode())
+            resp_raw = b''
+            while True:
+                chunk = sock.recv(65536)
+                if not chunk:
+                    break
+                resp_raw += chunk
+            sock.close()
+
+            resp = json.loads(resp_raw.decode())
+            self.assertIn('content', resp)
+            self.assertEqual(1, len(opened))
+        finally:
+            subprocess.run = orig_run
+            if os.path.exists(sock_path):
+                os.unlink(sock_path)
+
+    def test_editor_proxy_outside_project(self):
+        """Test editor proxy rejects paths outside the project"""
+        import socket as socket_mod
+
+        project_src = self.test_dir
+        sock_path = cc.start_editor_proxy(project_src)
+        try:
+            sock = socket_mod.socket(socket_mod.AF_UNIX,
+                                     socket_mod.SOCK_STREAM)
+            sock.connect(sock_path)
+            sock.sendall(b'/etc/passwd\n')
+            resp = sock.recv(4096).decode().strip()
+            sock.close()
+
+            self.assertIn('error', resp)
+        finally:
+            if os.path.exists(sock_path):
+                os.unlink(sock_path)
 
     def test_run_command_cc(self):
         """Test run_command dispatches to cc correctly"""
@@ -4244,6 +4478,8 @@ class TestCcSubcommand(TestBase):  # pylint: disable=R0904
             'devbox': '/home/user/dev/linux',
         }
 
+        priv = {'mybox': 'true', 'devbox': ''}
+
         def mock_lxc(pipe_list, **_kwargs):
             cmd = pipe_list[0]
             if 'device' in cmd:
@@ -4254,14 +4490,19 @@ class TestCcSubcommand(TestBase):  # pylint: disable=R0904
                         return_code=0, stdout=proj + '\n', stderr='')
                 return command.CommandResult(
                     return_code=1, stdout='', stderr='not found')
+            if 'security.privileged' in cmd:
+                name = cmd[cmd.index('get') + 1]
+                return command.CommandResult(
+                    return_code=0, stdout=priv.get(name, '') + '\n',
+                    stderr='')
             return command.CommandResult(
                 return_code=0, stdout=csv, stderr='')
 
         command.TEST_RESULT = mock_lxc
         result = cc.list_containers()
         self.assertEqual(
-            [('mybox', 'RUNNING', '/home/user/dev/uboot'),
-             ('devbox', 'STOPPED', '/home/user/dev/linux')],
+            [('mybox', 'RUNNING', '/home/user/dev/uboot', True),
+             ('devbox', 'STOPPED', '/home/user/dev/linux', False)],
             result)
 
     def test_list_containers_empty(self):
@@ -4688,6 +4929,7 @@ More text
         self.assertIn('gcc', setup.SETUP_COMPONENTS)
         self.assertIn('qemu', setup.SETUP_COMPONENTS)
         self.assertIn('opensbi', setup.SETUP_COMPONENTS)
+        self.assertIn('remote', setup.SETUP_COMPONENTS)
         self.assertIn('tfa', setup.SETUP_COMPONENTS)
         self.assertIn('xtensa', setup.SETUP_COMPONENTS)
 
@@ -4771,6 +5013,39 @@ More text
         self.assertEqual(0, res)
         self.assertFalse(out.getvalue())
 
+    def test_setup_remote_parsing(self):
+        """Test that setup remote subcommand is parsed correctly"""
+        args = cmdline.parse_args(['setup', 'remote', 'myhost'])
+        self.assertEqual('setup', args.cmd)
+        self.assertEqual('remote', args.component)
+        self.assertEqual('myhost', args.host)
+
+    def test_setup_remote_no_host(self):
+        """Test setup remote with no hostname"""
+        args = argparse.Namespace(
+            cmd='setup', component='remote', host=None,
+            list_components=False, force=False, dry_run=False,
+            verbose=False, debug=False, alias_dir=None)
+        with terminal.capture() as (_, err):
+            res = setup.do_setup(args)
+        self.assertEqual(1, res)
+        self.assertIn('Hostname required', err.getvalue())
+
+    def test_setup_remote_dry_run(self):
+        """Test setup remote in dry-run mode"""
+        args = argparse.Namespace(
+            cmd='setup', component='remote', host='testhost',
+            list_components=False, force=False, dry_run=True,
+            verbose=False, debug=False, alias_dir=None)
+        with terminal.capture() as (out, _):
+            res = setup.do_setup(args)
+        self.assertEqual(0, res)
+        output = out.getvalue()
+        self.assertIn('rsync', output)
+        self.assertIn('testhost', output)
+        self.assertIn('ln -sf', output)
+        self.assertIn('setup aliases', output)
+
 
 class TestMain(TestBase):
     """Tests for __main__.py"""
@@ -4780,32 +5055,16 @@ class TestMain(TestBase):
         """Get the uman package directory"""
         cls.uman_dir = os.path.dirname(os.path.dirname(__file__))
 
-    def test_uboot_tools_env_var(self):
-        """Test UBOOT_TOOLS env var overrides default path"""
-        # With invalid UBOOT_TOOLS, uman should fail to import u_boot_pylib
-        # Clear PYTHONPATH to ensure only UBOOT_TOOLS is used
+    def test_embedded_pylib(self):
+        """Test uman works without UBOOT_TOOLS using embedded u_boot_pylib"""
         env = os.environ.copy()
         env['UBOOT_TOOLS'] = '/nonexistent/path'
         env.pop('PYTHONPATH', None)
+        env.pop('UMAN_EXTERNAL_PYLIB', None)
         result = subprocess.run(
             ['python3', '-m', 'uman_pkg', '--help'],
             capture_output=True, env=env, cwd=self.uman_dir, check=False)
-        # Should fail with import error
-        self.assertNotEqual(0, result.returncode)
-        self.assertIn(b'ModuleNotFoundError', result.stderr)
-
-    def test_uboot_tools_tilde_expansion(self):
-        """Test UBOOT_TOOLS expands ~ in path"""
-        # Verify tilde is expanded (not passed literally)
-        # Clear PYTHONPATH to ensure only UBOOT_TOOLS is used
-        env = os.environ.copy()
-        env['UBOOT_TOOLS'] = '~/nonexistent'
-        env.pop('PYTHONPATH', None)
-        result = subprocess.run(
-            ['python3', '-m', 'uman_pkg', '--help'],
-            capture_output=True, env=env, cwd=self.uman_dir, check=False)
-        # Error should show expanded path, not literal ~
-        self.assertNotIn(b"'~/nonexistent'", result.stderr)
+        self.assertEqual(0, result.returncode)
 
 
 class TestUtil(TestBase):
@@ -5016,51 +5275,89 @@ int main(void) { return 0; }
         self.assertIn('dm.test_gpio', stdout)
         self.assertNotIn('env.test_env_basic', stdout)
 
-    def test_build_ut_cmd_no_tests(self):
+    @mock.patch.object(cmdtest, 'has_emit_result', return_value=True)
+    @mock.patch.object(cmdtest, 'has_no_flat', return_value=True)
+    def test_build_ut_cmd_no_tests(self, *_):
         """Test build_ut_cmd with all specs"""
         cmd = cmdtest.build_ut_cmd('/sb', [('all', None)])
         self.assertEqual(['/sb', '-T', '-F', '-c', 'ut -E all'], cmd)
 
-    def test_build_ut_cmd_full(self):
+    @mock.patch.object(cmdtest, 'has_emit_result', return_value=True)
+    def test_build_ut_cmd_full(self, _):
         """Test build_ut_cmd with full flag (both tree types)"""
         cmd = cmdtest.build_ut_cmd('/sb', [('dm', None)], full=True)
         self.assertEqual(['/sb', '-T', '-c', 'ut -E dm'], cmd)
 
-    def test_build_ut_cmd_verbose(self):
+    @mock.patch.object(cmdtest, 'has_emit_result', return_value=True)
+    @mock.patch.object(cmdtest, 'has_no_flat', return_value=True)
+    def test_build_ut_cmd_verbose(self, *_):
         """Test build_ut_cmd with verbose flag"""
         cmd = cmdtest.build_ut_cmd('/sb', [('dm', None)], verbose=True)
         self.assertEqual(['/sb', '-T', '-F', '-v', '-c', 'ut -E dm'], cmd)
 
-    def test_build_ut_cmd_all_flags(self):
+    @mock.patch.object(cmdtest, 'has_emit_result', return_value=True)
+    def test_build_ut_cmd_all_flags(self, _):
         """Test build_ut_cmd with all flags"""
         cmd = cmdtest.build_ut_cmd('/sb', [('dm', None)],
                                    full=True, verbose=True)
         self.assertEqual(['/sb', '-T', '-v', '-c', 'ut -E dm'], cmd)
 
-    def test_build_ut_cmd_suite(self):
+    @mock.patch.object(cmdtest, 'has_emit_result', return_value=True)
+    @mock.patch.object(cmdtest, 'has_no_flat', return_value=True)
+    def test_build_ut_cmd_suite(self, *_):
         """Test build_ut_cmd with suite name"""
         cmd = cmdtest.build_ut_cmd('/sb', [('dm', None)])
         self.assertEqual(['/sb', '-T', '-F', '-c', 'ut -E dm'], cmd)
 
-    def test_build_ut_cmd_specific_test(self):
+    @mock.patch.object(cmdtest, 'has_emit_result', return_value=True)
+    @mock.patch.object(cmdtest, 'has_no_flat', return_value=True)
+    def test_build_ut_cmd_specific_test(self, *_):
         """Test build_ut_cmd with specific test (suite.test)"""
         cmd = cmdtest.build_ut_cmd('/sb', [('dm', 'test_one')])
         self.assertEqual(['/sb', '-T', '-F', '-c', 'ut -E dm test_one'], cmd)
 
-    def test_build_ut_cmd_multiple_tests(self):
+    @mock.patch.object(cmdtest, 'has_emit_result', return_value=True)
+    @mock.patch.object(cmdtest, 'has_no_flat', return_value=True)
+    def test_build_ut_cmd_multiple_tests(self, *_):
         """Test build_ut_cmd with multiple test specifications"""
         cmd = cmdtest.build_ut_cmd('/sb', [('dm', None), ('env', None)])
         self.assertEqual(['/sb', '-T', '-F', '-c', 'ut -E dm; ut -E env'], cmd)
 
-    def test_build_ut_cmd_legacy(self):
+    @mock.patch.object(cmdtest, 'has_no_flat', return_value=True)
+    def test_build_ut_cmd_legacy(self, _):
         """Test build_ut_cmd with legacy flag omits -E"""
         cmd = cmdtest.build_ut_cmd('/sb', [('dm', None)], legacy=True)
         self.assertEqual(['/sb', '-T', '-F', '-c', 'ut dm'], cmd)
 
-    def test_build_ut_cmd_manual(self):
+    @mock.patch.object(cmdtest, 'has_emit_result', return_value=True)
+    @mock.patch.object(cmdtest, 'has_no_flat', return_value=True)
+    def test_build_ut_cmd_manual(self, *_):
         """Test build_ut_cmd with manual flag"""
         cmd = cmdtest.build_ut_cmd('/sb', [('dm', None)], manual=True)
         self.assertEqual(['/sb', '-T', '-F', '-c', 'ut -E -m dm'], cmd)
+
+    @mock.patch.object(cmdtest, 'has_emit_result', return_value=True)
+    @mock.patch.object(cmdtest, 'has_no_flat', return_value=False)
+    def test_build_ut_cmd_no_flat_unsupported(self, *_):
+        """Test build_ut_cmd omits -F when source tree lacks support"""
+        cmd = cmdtest.build_ut_cmd('/sb', [('dm', None)])
+        self.assertEqual(['/sb', '-T', '-c', 'ut -E dm'], cmd)
+
+    @mock.patch.object(cmdtest, 'has_emit_result', return_value=False)
+    def test_build_ut_cmd_no_emit_unsupported(self, _):
+        """Test build_ut_cmd omits -E when source tree lacks support"""
+        cmd = cmdtest.build_ut_cmd('/sb', [('dm', None)])
+        self.assertEqual(['/sb', '-T', '-c', 'ut dm'], cmd)
+
+    @mock.patch.object(cmdtest, 'has_emit_result', return_value=True)
+    @mock.patch.object(cmdtest, 'has_no_flat', return_value=True)
+    def test_build_ut_cmd_malloc_dump(self, *_):
+        """Test build_ut_cmd expands %d in malloc_dump filename"""
+        cmd = cmdtest.build_ut_cmd('/sb', [('dm', None)],
+                                   malloc_dump='/tmp/dump-%d.txt')
+        self.assertEqual(
+            ['/sb', '-T', '--malloc_dump', '/tmp/dump-0.txt',
+             '-F', '-c', 'ut -E dm'], cmd)
 
     def test_run_tests_basic(self):
         """Test run_tests executes sandbox correctly"""
@@ -5073,11 +5370,14 @@ int main(void) { return 0; }
 
         args = cmdline.parse_args(['test', 'dm'])
         col = terminal.Color()
-        with mock.patch.object(command, 'run_one', mock_run):
-            with mock.patch.object(cmdtest, 'ensure_dm_init_files',
-                                   return_value=True):
-                with terminal.capture():
-                    result = cmdtest.run_tests('/sb', [('dm', None)], args, col)
+        with mock.patch.object(cmdtest, 'has_emit_result', return_value=True):
+            with mock.patch.object(cmdtest, 'has_no_flat', return_value=True):
+                with mock.patch.object(command, 'run_one', mock_run):
+                    with mock.patch.object(cmdtest, 'ensure_dm_init_files',
+                                           return_value=True):
+                        with terminal.capture():
+                            result = cmdtest.run_tests(
+                                '/sb', [('dm', None)], args, col)
         self.assertEqual(0, result)
         self.assertEqual(('/sb', '-T', '-F', '-c', 'ut -E dm'), cap[0])
 
@@ -5092,11 +5392,13 @@ int main(void) { return 0; }
 
         args = cmdline.parse_args(['test', '--flattree-too', 'dm'])
         col = terminal.Color()
-        with mock.patch.object(command, 'run_one', mock_run):
-            with mock.patch.object(cmdtest, 'ensure_dm_init_files',
-                                   return_value=True):
-                with terminal.capture():
-                    result = cmdtest.run_tests('/sb', [('dm', None)], args, col)
+        with mock.patch.object(cmdtest, 'has_emit_result', return_value=True):
+            with mock.patch.object(command, 'run_one', mock_run):
+                with mock.patch.object(cmdtest, 'ensure_dm_init_files',
+                                       return_value=True):
+                    with terminal.capture():
+                        result = cmdtest.run_tests(
+                            '/sb', [('dm', None)], args, col)
         self.assertEqual(0, result)
         self.assertEqual(('/sb', '-T', '-c', 'ut -E dm'), cap[0])
 
@@ -5111,11 +5413,14 @@ int main(void) { return 0; }
 
         args = cmdline.parse_args(['test', '-V', 'dm'])
         col = terminal.Color()
-        with mock.patch.object(command, 'run_one', mock_run):
-            with mock.patch.object(cmdtest, 'ensure_dm_init_files',
-                                   return_value=True):
-                with terminal.capture():
-                    result = cmdtest.run_tests('/sb', [('dm', None)], args, col)
+        with mock.patch.object(cmdtest, 'has_emit_result', return_value=True):
+            with mock.patch.object(cmdtest, 'has_no_flat', return_value=True):
+                with mock.patch.object(command, 'run_one', mock_run):
+                    with mock.patch.object(cmdtest, 'ensure_dm_init_files',
+                                           return_value=True):
+                        with terminal.capture():
+                            result = cmdtest.run_tests(
+                                '/sb', [('dm', None)], args, col)
         self.assertEqual(0, result)
         self.assertEqual(('/sb', '-T', '-F', '-v', '-c', 'ut -E dm'), cap[0])
 
@@ -5171,6 +5476,25 @@ Result: SKIP dm_test_fourth
         self.assertEqual(1, res.passed)
         self.assertEqual(0, res.failed)
         self.assertEqual(1, res.skipped)
+
+    def test_parse_summary_basic(self):
+        """Test parse_summary with standard output"""
+        output = 'Tests run: 540, 11595 ms, average: 21 ms, failures: 7'
+        res = cmdtest.parse_summary(output)
+        self.assertEqual(533, res.passed)
+        self.assertEqual(7, res.failed)
+        self.assertEqual(0, res.skipped)
+
+    def test_parse_summary_no_failures(self):
+        """Test parse_summary with no failures"""
+        output = 'Tests run: 1, 4 ms, average: 4 ms, failures: 0'
+        res = cmdtest.parse_summary(output)
+        self.assertEqual(1, res.passed)
+        self.assertEqual(0, res.failed)
+
+    def test_parse_summary_empty(self):
+        """Test parse_summary with no summary line"""
+        self.assertIsNone(cmdtest.parse_summary(''))
 
     def test_parse_results_empty(self):
         """Test parse_results with empty output returns None"""
@@ -5246,7 +5570,6 @@ Result: PASS dm_test_second
         output = '''
 U-Boot banner here
 Missing required argument 'fs_image' for test 'pxe_test_sysboot'
-Tests run: 1, failures: 1
 '''
 
         def mock_run(*_args, **_kwargs):
@@ -5264,6 +5587,26 @@ Tests run: 1, failures: 1
         self.assertIn('No results detected', err.getvalue())
         # Error message should be shown in output
         self.assertIn('Missing required argument', out.getvalue())
+
+    def test_run_tests_parses_summary(self):
+        """Test run_tests uses summary line when -E is unavailable"""
+        output = 'Tests run: 10, 100 ms, average: 10 ms, failures: 2'
+
+        def mock_run(*_args, **_kwargs):
+            return command.CommandResult(return_code=1, stdout=output)
+
+        args = cmdline.parse_args(['test', 'dm'])
+        col = terminal.Color()
+        with mock.patch.object(cmdtest, 'has_emit_result', return_value=False):
+            with mock.patch.object(command, 'run_one', mock_run):
+                with mock.patch.object(cmdtest, 'ensure_dm_init_files',
+                                       return_value=True):
+                    with terminal.capture() as (out, err):
+                        result = cmdtest.run_tests(
+                            '/sb', [('dm', None)], args, col)
+        self.assertEqual(1, result)
+        self.assertIn('8 passed', out.getvalue())
+        self.assertIn('2 failed', out.getvalue())
 
     def test_run_tests_detects_segfault(self):
         """Test run_tests detects segfault (SIGSEGV) and resets terminal"""
@@ -5322,17 +5665,104 @@ Tests run: 1, failures: 1
 
         args = cmdline.parse_args(['test', 'dm'])
         args.col = terminal.Color()
-        with mock.patch.object(cmdtest, 'get_sandbox_path', return_value='/sb'):
-            with mock.patch.object(cmdtest, 'resolve_specs', mock_resolve):
-                with mock.patch.object(cmdtest, 'validate_specs',
-                                       return_value=[]):
-                    with mock.patch.object(cmdtest, 'ensure_dm_init_files',
-                                           return_value=True):
-                        with mock.patch.object(command, 'run_one', mock_run):
-                            with terminal.capture():
-                                result = cmdtest.do_test(args)
+        with mock.patch.object(cmdtest, 'has_emit_result', return_value=True):
+            with mock.patch.object(cmdtest, 'has_no_flat', return_value=True):
+                with mock.patch.object(cmdtest, 'get_sandbox_path',
+                                       return_value='/sb'):
+                    with mock.patch.object(cmdtest, 'resolve_specs',
+                                           mock_resolve):
+                        with mock.patch.object(cmdtest, 'validate_specs',
+                                               return_value=[]):
+                            with mock.patch.object(
+                                    cmdtest, 'ensure_dm_init_files',
+                                    return_value=True):
+                                with mock.patch.object(command, 'run_one',
+                                                       mock_run):
+                                    with terminal.capture():
+                                        result = cmdtest.do_test(args)
         self.assertEqual(0, result)
         self.assertEqual(('/sb', '-T', '-F', '-c', 'ut -E dm'), cap[0])
+
+    def test_count_tests_suite(self):
+        """Test count_tests counts tests in a suite"""
+        tests = [('dm', 'test_a'), ('dm', 'test_b')]
+        with mock.patch.object(cmdtest, 'get_tests_from_nm',
+                               return_value=tests) as mock_nm:
+            result = cmdtest.count_tests('/sb', [('dm', None)])
+        self.assertEqual(2, result)
+        mock_nm.assert_called_once_with('/sb', 'dm')
+
+    def test_count_tests_all(self):
+        """Test count_tests counts all tests"""
+        tests = [('dm', 'a'), ('dm', 'b'), ('env', 'c')]
+        with mock.patch.object(cmdtest, 'get_tests_from_nm',
+                               return_value=tests):
+            result = cmdtest.count_tests('/sb', [('all', None)])
+        self.assertEqual(3, result)
+
+    def test_count_tests_pattern(self):
+        """Test count_tests counts tests matching a pattern"""
+        tests = [('dm', 'gpio'), ('dm', 'gpio_irq'), ('dm', 'i2c')]
+        with mock.patch.object(cmdtest, 'get_tests_from_nm',
+                               return_value=tests):
+            result = cmdtest.count_tests('/sb', [('dm', 'gpio')])
+        self.assertEqual(1, result)
+
+    def test_progress_with_total(self):
+        """Test Progress shows total in output"""
+        prog = cmdtest.Progress(emit_result=True, total=10)
+        self.assertEqual(10, prog.total)
+
+    def test_progress_with_emit(self):
+        """Test Progress counts Result: lines with -E"""
+        prog = cmdtest.Progress(emit_result=True)
+        prog.update(None, b'Result: PASS test1\n')
+        prog.update(None, b'Result: FAIL test2\n')
+        prog.update(None, b'Result: SKIP test3\n')
+        prog.update(None, b'Result: PASS test4\n')
+        prog.finish()
+        self.assertEqual(2, prog.passed)
+        self.assertEqual(1, prog.failed)
+        self.assertEqual(1, prog.skipped)
+
+    def test_progress_without_emit(self):
+        """Test Progress counts Test: and failure lines without -E"""
+        prog = cmdtest.Progress(emit_result=False)
+        prog.update(None, b'Test: acpi: acpi.c\n')
+        prog.update(None, b'Test: gpio: gpio.c\n')
+        prog.update(None,
+                     b"Test 'gpio' failed 1 times\nTest: host: host.c\n")
+        prog.finish()
+        self.assertEqual(2, prog.passed)
+        self.assertEqual(1, prog.failed)
+        self.assertEqual(0, prog.skipped)
+
+    def test_progress_partial_lines(self):
+        """Test Progress handles data split across chunks"""
+        prog = cmdtest.Progress(emit_result=True)
+        prog.update(None, b'Result: PA')
+        prog.update(None, b'SS test1\nResult:')
+        prog.update(None, b' FAIL test2\n')
+        prog.finish()
+        self.assertEqual(1, prog.passed)
+        self.assertEqual(1, prog.failed)
+
+    def test_progress_no_output(self):
+        """Test Progress with no test output"""
+        prog = cmdtest.Progress(emit_result=True)
+        prog.finish()
+        self.assertEqual(0, prog.passed)
+        self.assertEqual(0, prog.failed)
+        self.assertEqual(0, prog.skipped)
+
+    def test_progress_last_test_passes(self):
+        """Test Progress counts the last test as passed at finish"""
+        prog = cmdtest.Progress(emit_result=False)
+        prog.update(None, b'Test: foo: foo.c\n')
+        self.assertTrue(prog.pending)
+        prog.finish()
+        self.assertEqual(1, prog.passed)
+        self.assertFalse(prog.pending)
 
     def test_parse_one_test_suite(self):
         """Test parse_one_test with suite name"""
@@ -6149,3 +6579,232 @@ class TestPytestHooks(TestBase):
 
         self.assertEqual('qemu', result['console_impl'])
         self.assertEqual('qemu-system-arm', result['qemu_binary'])
+
+
+class TestDockerTest(TestBase):
+    """Test the docker (d) subcommand"""
+
+    GITLAB_CI = '''default:
+  image: ${MIRROR_DOCKER}/sjg20/u-boot-ci-runner:jammy-20250404-abc123
+
+.buildman_and_testpy_template:
+  before_script:
+    - git config --global --add safe.directory "${CI_PROJECT_DIR}"
+    - ln -s travis-ci test/hooks/bin/`hostname`
+    - ln -s travis-ci test/hooks/py/`hostname`
+    - python3 -m venv /tmp/venv;
+      . /tmp/venv/bin/activate;
+      pip install -r test/py/requirements.txt
+  script:
+    - export UBOOT_TRAVIS_BUILD_DIR=/tmp/${TEST_PY_BD}
+    - tools/buildman/buildman -o ${UBOOT_TRAVIS_BUILD_DIR} -w -E -W -e
+        --board ${TEST_PY_BD} ${OVERRIDE}
+    - cp /opt/grub/grub_x86.efi $UBOOT_TRAVIS_BUILD_DIR/
+    - if [[ -n "${TEST_SPEC}" ]]; then
+        SPEC="${TEST_SPEC}";
+      else
+        SPEC="${TEST_PY_TEST_SPEC}";
+      fi
+    - export PATH=/opt/qemu/bin:test/hooks/bin:${PATH};
+      ./test/py/test.py -ra --bd ${TEST_PY_BD}
+        ${SPEC:+"-k ${SPEC}"}
+        --build-dir "$UBOOT_TRAVIS_BUILD_DIR"
+        ${TEST_PY_EXTRA}
+
+stages:
+  - build
+'''
+
+    def setUp(self):
+        super().setUp()
+        tout.init(tout.NOTICE)
+        self.orig_cwd = os.getcwd()
+        self.orig_usrc = os.environ.get('USRC')
+        if 'USRC' in os.environ:
+            del os.environ['USRC']
+
+        # Create a fake U-Boot tree
+        os.chdir(self.test_dir)
+        os.makedirs('test/py')
+        tools.write_file('test/py/test.py', b'# test')
+        tools.write_file('.gitlab-ci.yml',
+                         self.GITLAB_CI.encode(), binary=True)
+
+    def tearDown(self):
+        os.chdir(self.orig_cwd)
+        if self.orig_usrc is not None:
+            os.environ['USRC'] = self.orig_usrc
+        elif 'USRC' in os.environ:
+            del os.environ['USRC']
+        super().tearDown()
+
+    def test_load_ci_yaml(self):
+        """Test loading .gitlab-ci.yml"""
+        data = cmddocker.load_ci_yaml(self.test_dir)
+        self.assertIsNotNone(data)
+        self.assertIn('default', data)
+
+    def test_load_ci_yaml_missing(self):
+        """Test load_ci_yaml with missing file"""
+        with terminal.capture() as (out, err):
+            data = cmddocker.load_ci_yaml(self.orig_cwd)
+        self.assertIsNone(data)
+
+    def test_get_ci_image(self):
+        """Test parsing Docker image from parsed YAML"""
+        data = cmddocker.load_ci_yaml(self.test_dir)
+        image = cmddocker.get_ci_image(data)
+        self.assertEqual(
+            'docker.io/sjg20/u-boot-ci-runner:jammy-20250404-abc123',
+            image)
+
+    def test_get_ci_image_no_match(self):
+        """Test get_ci_image when image is not found"""
+        with terminal.capture() as (out, err):
+            image = cmddocker.get_ci_image({'stages': ['build']})
+        self.assertIsNone(image)
+        self.assertEqual('Cannot find image in .gitlab-ci.yml\n',
+                         err.getvalue())
+
+    def test_get_ci_script(self):
+        """Test extracting script from parsed YAML"""
+        data = cmddocker.load_ci_yaml(self.test_dir)
+        before, script = cmddocker.get_ci_script(data)
+        self.assertTrue(len(before) > 0)
+        self.assertTrue(len(script) > 0)
+
+    def test_build_script(self):
+        """Test script generation without test spec"""
+        data = cmddocker.load_ci_yaml(self.test_dir)
+        script = cmddocker.build_script(data, 'sandbox', None)
+        self.assertIn('--board sandbox', script)
+        self.assertIn('UBOOT_TRAVIS_BUILD_DIR=/tmp/sandbox', script)
+        self.assertIn('cp /opt/grub/grub_x86.efi', script)
+
+    def test_build_script_test_spec(self):
+        """Test script generation with test spec"""
+        data = cmddocker.load_ci_yaml(self.test_dir)
+        script = cmddocker.build_script(data, 'sandbox',
+                                        'test_ofplatdata')
+        self.assertIn('test_ofplatdata', script)
+
+    def test_build_script_gdb(self):
+        """Test script generation with gdbserver wrapper"""
+        data = cmddocker.load_ci_yaml(self.test_dir)
+        script = cmddocker.build_script(data, 'sandbox', None, gdb=True)
+        self.assertIn('apt-get', script)
+        self.assertIn('mv $bd/u-boot $bd/u-boot.real', script)
+        self.assertIn('gdbserver :1234', script)
+        self.assertIn('chmod +x $bd/u-boot', script)
+
+    def test_build_script_board(self):
+        """Test script generation with a different board"""
+        data = cmddocker.load_ci_yaml(self.test_dir)
+        script = cmddocker.build_script(data, 'sandbox_flattree', None)
+        self.assertIn('--board sandbox_flattree', script)
+        self.assertIn('UBOOT_TRAVIS_BUILD_DIR=/tmp/sandbox_flattree',
+                      script)
+
+    def test_run_dry_run(self):
+        """Test dry-run shows docker command"""
+        args = cmdline.parse_args(['-n', 'docker'])
+        with terminal.capture() as (out, err):
+            res = cmddocker.run(args)
+        self.assertEqual(0, res)
+        output = out.getvalue()
+        self.assertIn('docker run --rm', output)
+        self.assertIn('--user', output)
+        self.assertIn('HOME=/tmp', output)
+        self.assertIn('/etc/passwd:/etc/passwd:ro', output)
+        self.assertIn('docker.io/sjg20/u-boot-ci-runner', output)
+        self.assertFalse(err.getvalue())
+
+    def test_run_dry_run_with_spec(self):
+        """Test dry-run with test spec"""
+        args = cmdline.parse_args(['-n', 'd', 'test_ofplatdata'])
+        with terminal.capture() as (out, err):
+            res = cmddocker.run(args)
+        self.assertEqual(0, res)
+        output = out.getvalue()
+        self.assertIn('test_ofplatdata', output)
+        self.assertFalse(err.getvalue())
+
+    def test_run_dry_run_interactive(self):
+        """Test dry-run in interactive mode"""
+        args = cmdline.parse_args(['-n', 'docker', '-I'])
+        with terminal.capture() as (out, err):
+            res = cmddocker.run(args)
+        self.assertEqual(0, res)
+        output = out.getvalue()
+        self.assertIn('docker run --rm', output)
+        # Interactive mode should just run bash, not bash -c <script>
+        self.assertNotIn('bash -c', output)
+        self.assertFalse(err.getvalue())
+
+    def test_run_dry_run_custom_image(self):
+        """Test dry-run with custom image"""
+        args = cmdline.parse_args(
+            ['-n', 'd', '-i', 'myimage:latest'])
+        with terminal.capture() as (out, err):
+            res = cmddocker.run(args)
+        self.assertEqual(0, res)
+        self.assertIn('myimage:latest', out.getvalue())
+        self.assertFalse(err.getvalue())
+
+    def test_run_no_uboot(self):
+        """Test run when not in a U-Boot tree"""
+        os.chdir(self.orig_cwd)
+        args = cmdline.parse_args(['docker'])
+        with terminal.capture() as (out, err):
+            res = cmddocker.run(args)
+        self.assertEqual(1, res)
+
+    def test_run_dry_run_gdb(self):
+        """Test dry-run with gdbserver wrapper for u-boot"""
+        args = cmdline.parse_args(['-n', 'docker', '-g'])
+        self.assertEqual('u-boot', args.gdb_phase)
+        with terminal.capture() as (out, err):
+            res = cmddocker.run(args)
+        self.assertEqual(0, res)
+        output = out.getvalue()
+        self.assertIn('--user 0:0', output)
+        self.assertIn('--cap-add=SYS_PTRACE', output)
+        self.assertIn('-p 1234:1234', output)
+        self.assertIn('apt-get', output)
+        self.assertIn('u-boot.real', output)
+        self.assertIn('gdbserver :1234', output)
+        self.assertIn('um py -G -B sandbox', output)
+        self.assertNotIn('--gdbserver', output)
+
+    def test_run_dry_run_gdb_spl(self):
+        """Test dry-run with gdbserver for SPL"""
+        args = cmdline.parse_args(['-n', 'docker', '--gdb-phase', 'spl'])
+        self.assertEqual('spl', args.gdb_phase)
+        with terminal.capture() as (out, err):
+            res = cmddocker.run(args)
+        self.assertEqual(0, res)
+        output = out.getvalue()
+        self.assertIn('--gdbserver localhost:1234', output)
+        self.assertNotIn('u-boot.real', output)
+
+    def test_cmdline_defaults(self):
+        """Test default argument values"""
+        args = cmdline.parse_args(['docker'])
+        self.assertEqual('sandbox', args.board)
+        self.assertEqual([], args.test_spec)
+        self.assertIsNone(args.gdb_phase)
+        self.assertIsNone(args.image)
+        self.assertFalse(args.interactive)
+
+    def test_cmdline_alias(self):
+        """Test d alias resolves to docker"""
+        args = cmdline.parse_args(['d'])
+        self.assertEqual('docker', args.cmd)
+
+    def test_control_dispatch(self):
+        """Test control.run_command dispatches to docker-test"""
+        args = cmdline.parse_args(['-n', 'docker'])
+        with terminal.capture() as (out, err):
+            res = control.run_command(args)
+        self.assertEqual(0, res)
+        self.assertIn('docker run', out.getvalue())

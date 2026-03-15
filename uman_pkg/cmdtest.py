@@ -322,6 +322,50 @@ def parse_test_specs(tests):
     return [parse_one_test(t) for t in tests]
 
 
+def resolve_one(suite, pattern, all_tests, known_suites):
+    """Resolve a single (suite, pattern) spec against known tests
+
+    Args:
+        suite (str or None): Suite name, 'all', or None to search
+        pattern (str or None): Test pattern or None for whole suite
+        all_tests (list): List of (suite, test_name) from nm
+        known_suites (set): Set of known suite names
+
+    Returns:
+        tuple: (resolved_list, matched) where resolved_list is a list of
+            (suite, pattern) tuples and matched is True if something matched
+    """
+    if suite == 'all' or suite in known_suites:
+        return [(suite, pattern)], True
+
+    if suite is not None:
+        # Suite doesn't exist - try to find full test name
+        if pattern:
+            full_name = f'{suite}_test_{pattern}'
+        else:
+            full_name = suite
+        for test_suite, test_name in all_tests:
+            if test_name == full_name:
+                return [(test_suite, full_name)], True
+
+        # Try as a pattern across all suites
+        if pattern is None:
+            matches = set()
+            for test_suite, test_name in all_tests:
+                if fnmatch.fnmatch(test_name, f'*{suite}*'):
+                    matches.add(test_suite)
+            if matches:
+                return [(s, f'{s}_test_{suite}*')
+                        for s in sorted(matches)], True
+        return [], False
+
+    # suite is None - search all suites for this pattern
+    for test_suite, test_name in all_tests:
+        if fnmatch.fnmatch(test_name, f'*{pattern}'):
+            return [(test_suite, pattern)], True
+    return [], False
+
+
 def resolve_specs(sandbox, specs):
     """Resolve specs with suite=None or invalid suite by looking up from nm
 
@@ -334,48 +378,23 @@ def resolve_specs(sandbox, specs):
     """
     resolved = []
     unmatched = []
-    all_tests = None  # Lazy load
-    known_suites = None  # Lazy load
+    all_tests = None
+    known_suites = None
 
     for suite, pattern in specs:
-        if suite is not None and suite != 'all':
-            # Check if suite exists
+        if suite not in (None, 'all'):
             if known_suites is None:
-                if all_tests is None:
-                    all_tests = get_tests_from_nm(sandbox)
-                known_suites = {s for s, _ in all_tests}
-
-            if suite in known_suites:
-                resolved.append((suite, pattern))
-            else:
-                # Suite doesn't exist - try to find full test name
-                # Reconstruct the original test name
-                if pattern:
-                    full_name = f'{suite}_test_{pattern}'
-                else:
-                    full_name = suite
-                found = False
-                for test_suite, test_name in all_tests:
-                    if test_name == full_name:
-                        resolved.append((test_suite, full_name))
-                        found = True
-                        break
-                if not found:
-                    unmatched.append((suite, pattern))
-        elif suite == 'all':
-            resolved.append((suite, pattern))
-        else:
-            # Need to find suite(s) for this pattern
-            if all_tests is None:
                 all_tests = get_tests_from_nm(sandbox)
-            found = False
-            for test_suite, test_name in all_tests:
-                if fnmatch.fnmatch(test_name, f'*{pattern}'):
-                    resolved.append((test_suite, pattern))
-                    found = True
-                    break  # Only add first match
-            if not found:
-                unmatched.append((None, pattern))
+                known_suites = {s for s, _ in all_tests}
+        elif suite is None and all_tests is None:
+            all_tests = get_tests_from_nm(sandbox)
+            known_suites = {s for s, _ in all_tests}
+
+        found, matched = resolve_one(suite, pattern,
+                                     all_tests or [], known_suites or set())
+        resolved.extend(found)
+        if not matched:
+            unmatched.append((suite, pattern))
 
     return resolved, unmatched
 

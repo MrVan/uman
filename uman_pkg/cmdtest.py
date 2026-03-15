@@ -620,9 +620,14 @@ def parse_results(output, show_results=False, col=None):
     cur_details = []
     leak_top = []
 
+    def flush_leak():
+        if cur_leak_bytes and cur_test:
+            leak_top.append((cur_leak_bytes, cur_test, cur_details))
+
     for line in output.splitlines():
         test_match = RE_TEST_NAME.match(line)
         if test_match:
+            flush_leak()
             cur_test = test_match.group(1)
             cur_leak_bytes = 0
             cur_details = []
@@ -648,12 +653,12 @@ def parse_results(output, show_results=False, col=None):
                 skipped += 1
             if show_results:
                 show_result(status, name, col)
-            if cur_leak_bytes and cur_test:
-                leak_top.append((cur_leak_bytes, cur_test, cur_details))
+            flush_leak()
             cur_leak_bytes = 0
             cur_details = []
+    flush_leak()
 
-    if not passed and not failed and not skipped:
+    if not passed and not failed and not skipped and not leaked:
         return None
     leak_top.sort(reverse=True)
     return TestCounts(passed, failed, skipped, leaked, leak_bytes,

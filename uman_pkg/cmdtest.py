@@ -23,12 +23,12 @@ from u_boot_pylib import terminal
 from u_boot_pylib import tout
 
 from uman_pkg import build, settings
-from uman_pkg.util import format_bytes, run_pytest, show_summary
+from uman_pkg.util import format_bytes, run_pytest, show_leak_top, show_summary
 
 # Named tuple for test result counts
 TestCounts = namedtuple('TestCounts', ['passed', 'failed', 'skipped',
-                                       'leaked', 'leak_bytes'],
-                        defaults=[0, 0])
+                                       'leaked', 'leak_bytes', 'leak_top'],
+                        defaults=[0, 0, None])
 
 # Patterns for parsing linker-list symbols from nm output
 # Format: _u_boot_list_2_ut_<suite>_2_<test>
@@ -45,7 +45,7 @@ RE_RESULT = re.compile(r'Result:\s*(PASS|FAIL|SKIP):?\s+(\S+)')
 RE_SUMMARY = re.compile(r'Tests run:\s*(\d+),.*failures:\s*(\d+)')
 RE_TEST_FAILED = re.compile(r"Test '.+' failed \d+ times")
 RE_LEAK = re.compile(r'Leak:\s+(\d+)\s+alloc')
-RE_LEAK_DETAIL = re.compile(r'\s+[0-9a-f]+\s+([0-9a-f]+)\s+')
+RE_LEAK_DETAIL = re.compile(r'\s+[0-9a-f]+\s+([0-9a-f]+)\s+(.*)')
 
 # Unit test flags from include/test/test.h
 UTF_FLAT_TREE = 0x08
@@ -615,14 +615,27 @@ def parse_results(output, show_results=False, col=None):
     skipped = 0
     leaked = 0
     leak_bytes = 0
+    cur_test = None
+    cur_leak_bytes = 0
+    cur_details = []
+    leak_top = []
 
     for line in output.splitlines():
+        test_match = RE_TEST_NAME.match(line)
+        if test_match:
+            cur_test = test_match.group(1)
+            cur_leak_bytes = 0
+            cur_details = []
+            continue
         if RE_LEAK.match(line):
             leaked += 1
             continue
         detail = RE_LEAK_DETAIL.match(line)
         if detail:
-            leak_bytes += int(detail.group(1), 16)
+            nbytes = int(detail.group(1), 16)
+            leak_bytes += nbytes
+            cur_leak_bytes += nbytes
+            cur_details.append((nbytes, detail.group(2)))
             continue
         result_match = RE_RESULT.match(line)
         if result_match:
@@ -635,10 +648,16 @@ def parse_results(output, show_results=False, col=None):
                 skipped += 1
             if show_results:
                 show_result(status, name, col)
+            if cur_leak_bytes and cur_test:
+                leak_top.append((cur_leak_bytes, cur_test, cur_details))
+            cur_leak_bytes = 0
+            cur_details = []
 
     if not passed and not failed and not skipped:
         return None
-    return TestCounts(passed, failed, skipped, leaked, leak_bytes)
+    leak_top.sort(reverse=True)
+    return TestCounts(passed, failed, skipped, leaked, leak_bytes,
+                      leak_top)
 
 
 def count_tests(sandbox, specs):
@@ -899,6 +918,8 @@ def run_tests(sandbox, specs, args, col):
     if res is not None and res:
         show_summary(res.passed, res.failed, res.skipped, elapsed,
                      res.leaked, res.leak_bytes)
+        if res.leak_top and args.show_leaks:
+            show_leak_top(res.leak_top, args.show_leaks)
         ret = result.return_code
     elif res is not None:
         sig = check_signal(result.return_code)

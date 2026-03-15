@@ -187,6 +187,9 @@ def add_leak_opts(parser):
         '-M', '--leak-check', action='store_true', dest='leak_check',
         help='Check for memory leaks around each test')
     parser.add_argument(
+        '--show-leaks', type=int, default=10, metavar='N', dest='show_leaks',
+        help='Show top N leaks by bytes (default: 10, 0 to disable)')
+    parser.add_argument(
         '--malloc-dump', metavar='FILE', dest='malloc_dump',
         help='Write malloc dump to FILE on exit (use %%d for sequence number)')
 

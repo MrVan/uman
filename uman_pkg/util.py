@@ -263,3 +263,28 @@ def show_summary(passed, failed, skipped, elapsed, leaked=0,
             leak_str += f' ({format_bytes(leak_bytes)})'
         parts.append(f'{magenta}{leak_str}{reset}')
     print(f'Results: {", ".join(parts)} in {format_duration(elapsed)}')
+
+
+def show_leak_top(leak_top, count):
+    """Show the top leaking tests with deduplicated backtraces
+
+    Args:
+        leak_top (list): List of (bytes, name, details) tuples
+        count (int): Number of entries to show
+    """
+    print('Top leaks:')
+    for nbytes, name, details in leak_top[:count]:
+        name = name.rstrip(':')
+        print(f'  {format_bytes(nbytes):>7s}  {name}')
+        by_trace = {}
+        for size, trace in details:
+            if trace in by_trace:
+                cnt, total = by_trace[trace]
+                by_trace[trace] = (cnt + 1, total + size)
+            else:
+                by_trace[trace] = (1, size)
+        for trace, (cnt, total) in by_trace.items():
+            if cnt > 1:
+                print(f'          {cnt}x {format_bytes(total)}  {trace}')
+            else:
+                print(f'             {format_bytes(total)}  {trace}')

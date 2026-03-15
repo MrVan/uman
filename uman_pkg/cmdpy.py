@@ -471,6 +471,8 @@ def build_pytest_cmd(args):
         cmd.append('--no-full')
     if args.malloc_dump:
         cmd.extend(['--malloc-dump', args.malloc_dump])
+    if args.leak_check:
+        cmd.append('--leak-check')
 
     # Add extra pytest arguments (after --)
     if args.extra_args:

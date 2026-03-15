@@ -174,6 +174,23 @@ def get_cmd(args, board, build_dir):
     return ['buildman'] + get_buildman_args(args, board, build_dir)
 
 
+def base_bm_args(board, build_dir, lto=True):
+    """Build the common buildman arguments
+
+    Args:
+        board (str): Board name to build
+        build_dir (str): Path to build directory
+        lto (bool): Enable LTO (default True)
+
+    Returns:
+        list: Base arguments for buildman
+    """
+    bm_args = ['-I', '-w', '-W', '--boards', board, '-o', build_dir]
+    if not lto:
+        bm_args.insert(0, '-L')
+    return bm_args
+
+
 def get_buildman_args(args, board, build_dir):
     """Build the buildman arguments
 
@@ -188,9 +205,7 @@ def get_buildman_args(args, board, build_dir):
     if args.in_tree:
         bm_args = ['-i', '--boards', board]
     else:
-        bm_args = ['-I', '-w', '--boards', board, '-o', build_dir]
-    if not args.lto:
-        bm_args.insert(0, '-L')
+        bm_args = base_bm_args(board, build_dir, args.lto)
     if args.target:
         bm_args.extend(['--target', args.target])
     if args.jobs:
@@ -234,9 +249,7 @@ def build_board(board, dry_run=False, lto=False, adjust_cfg=None,
 
     tout.progress(f'Building {board}')
 
-    bm_args = ['-I', '-w', '--boards', board, '-o', build_dir]
-    if not lto:
-        bm_args.insert(0, '-L')
+    bm_args = base_bm_args(board, build_dir, lto)
     if force_reconfig:
         bm_args.append('-C')
     if jobs:

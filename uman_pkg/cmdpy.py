@@ -1154,9 +1154,8 @@ def do_pollute(args):
         base_dir = settings.get('build_dir', '/tmp/b')
         build_dir = f'{base_dir}/{args.board}-pollute'
         tout.notice(f'Building to {build_dir}...')
-        cmd = ['buildman', '-I', '-w', '--boards', args.board, '-o', build_dir]
-        if not args.lto:
-            cmd.insert(1, '-L')
+        cmd = ['buildman'] + build_mod.base_bm_args(args.board, build_dir,
+                                                    args.lto)
         result = exec_cmd(cmd, args.dry_run, capture=False)
         if result and result.return_code != 0:
             tout.error('Build failed')

@@ -446,7 +446,7 @@ def has_emit_result():
 
 
 def build_ut_cmd(sandbox, specs, full=False, verbose=False, legacy=False,
-                 manual=False, malloc_dump=None):
+                 manual=False, malloc_dump=None, leak_check=False):
     """Build the sandbox command line for running tests
 
     Args:
@@ -457,6 +457,7 @@ def build_ut_cmd(sandbox, specs, full=False, verbose=False, legacy=False,
         legacy (bool): Legacy mode (don't use -E flag for older U-Boot)
         manual (bool): Force manual tests to run
         malloc_dump (str or None): File to write malloc dump to on exit
+        leak_check (bool): Check for memory leaks around each test
 
     Returns:
         list: Command and arguments
@@ -481,6 +482,8 @@ def build_ut_cmd(sandbox, specs, full=False, verbose=False, legacy=False,
         flags += '-E '
     if manual:
         flags += '-m '
+    if leak_check:
+        flags += '-L '
     cmds = []
     for suite, pattern in specs:
         if pattern:
@@ -829,7 +832,8 @@ def run_tests(sandbox, specs, args, col):
     cmd = build_ut_cmd(sandbox, specs, full=args.flattree_too,
                        verbose=args.test_verbose, legacy=args.legacy,
                        manual=args.manual,
-                       malloc_dump=args.malloc_dump)
+                       malloc_dump=args.malloc_dump,
+                       leak_check=args.leak_check)
 
     if args.dry_run:
         tout.notice(shlex.join(cmd))

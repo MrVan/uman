@@ -866,6 +866,7 @@ without going through pytest. This is faster for quick iteration on C code.
 - ``-j, --jobs JOBS``: Number of parallel jobs (use with -b)
 - ``-l, --list``: List available tests
 - ``-L, --lto``: Enable LTO when building (use with -b)
+- ``--leak-check``: Check for memory leaks around each test using mallinfo()
 - ``--legacy``: Use legacy result parsing (for old U-Boot)
 - ``--malloc-dump FILE``: Write malloc heap dump on exit; ``%d`` in the filename
   is expanded to a sequence number

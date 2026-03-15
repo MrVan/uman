@@ -23,12 +23,12 @@ from u_boot_pylib import terminal
 from u_boot_pylib import tout
 
 from uman_pkg import build, settings
-from uman_pkg.util import run_pytest, show_summary
+from uman_pkg.util import format_bytes, run_pytest, show_summary
 
 # Named tuple for test result counts
 TestCounts = namedtuple('TestCounts', ['passed', 'failed', 'skipped',
-                                       'leaked'],
-                        defaults=[0])
+                                       'leaked', 'leak_bytes'],
+                        defaults=[0, 0])
 
 # Patterns for parsing linker-list symbols from nm output
 # Format: _u_boot_list_2_ut_<suite>_2_<test>
@@ -45,6 +45,7 @@ RE_RESULT = re.compile(r'Result:\s*(PASS|FAIL|SKIP):?\s+(\S+)')
 RE_SUMMARY = re.compile(r'Tests run:\s*(\d+),.*failures:\s*(\d+)')
 RE_TEST_FAILED = re.compile(r"Test '.+' failed \d+ times")
 RE_LEAK = re.compile(r'Leak:\s+(\d+)\s+alloc')
+RE_LEAK_DETAIL = re.compile(r'\s+[0-9a-f]+\s+([0-9a-f]+)\s+')
 
 # Unit test flags from include/test/test.h
 UTF_FLAT_TREE = 0x08
@@ -613,10 +614,15 @@ def parse_results(output, show_results=False, col=None):
     failed = 0
     skipped = 0
     leaked = 0
+    leak_bytes = 0
 
     for line in output.splitlines():
         if RE_LEAK.match(line):
             leaked += 1
+            continue
+        detail = RE_LEAK_DETAIL.match(line)
+        if detail:
+            leak_bytes += int(detail.group(1), 16)
             continue
         result_match = RE_RESULT.match(line)
         if result_match:
@@ -632,7 +638,7 @@ def parse_results(output, show_results=False, col=None):
 
     if not passed and not failed and not skipped:
         return None
-    return TestCounts(passed, failed, skipped, leaked)
+    return TestCounts(passed, failed, skipped, leaked, leak_bytes)
 
 
 def count_tests(sandbox, specs):
@@ -675,6 +681,7 @@ class Progress:
         self.failed = 0
         self.skipped = 0
         self.leaked = 0
+        self.leak_bytes = 0
         self.buf = ''
         self.pending = False  # A Test: line seen, not yet resolved
 
@@ -695,7 +702,10 @@ class Progress:
                  f'{red}{self.failed} failed{rst}',
                  f'{yel}{self.skipped} skipped{rst}']
         if self.leaked:
-            parts.append(f'{mag}{self.leaked} leaked{rst}')
+            leak_str = f'{self.leaked} leaked'
+            if self.leak_bytes:
+                leak_str += f' ({format_bytes(self.leak_bytes)})'
+            parts.append(f'{mag}{leak_str}{rst}')
         sys.stderr.write(f'\r  {hdr} {", ".join(parts)}')
         sys.stderr.flush()
 
@@ -704,6 +714,10 @@ class Progress:
         if RE_LEAK.match(line):
             self.leaked += 1
             self._show()
+            return
+        detail = RE_LEAK_DETAIL.match(line)
+        if detail:
+            self.leak_bytes += int(detail.group(1), 16)
             return
         if self.emit:
             match = RE_RESULT.match(line)
@@ -884,7 +898,7 @@ def run_tests(sandbox, specs, args, col):
 
     if res is not None and res:
         show_summary(res.passed, res.failed, res.skipped, elapsed,
-                     res.leaked)
+                     res.leaked, res.leak_bytes)
         ret = result.return_code
     elif res is not None:
         sig = check_signal(result.return_code)

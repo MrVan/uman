@@ -220,7 +220,24 @@ def format_duration(seconds):
     return f'{minutes}m {secs:.1f}s'
 
 
-def show_summary(passed, failed, skipped, elapsed, leaked=0):
+def format_bytes(nbytes):
+    """Format a byte count with K/M suffixes
+
+    Args:
+        nbytes (int): Number of bytes
+
+    Returns:
+        str: Formatted string (e.g. '1.2K', '3.5M', '512')
+    """
+    if nbytes >= 1024 * 1024:
+        return f'{nbytes / 1024 / 1024:.1f}M'
+    if nbytes >= 1024:
+        return f'{nbytes / 1024:.1f}K'
+    return str(nbytes)
+
+
+def show_summary(passed, failed, skipped, elapsed, leaked=0,
+                  leak_bytes=0):
     """Show a test results summary
 
     Args:
@@ -229,6 +246,7 @@ def show_summary(passed, failed, skipped, elapsed, leaked=0):
         skipped (int): Number of tests skipped
         elapsed (float): Time taken in seconds
         leaked (int): Number of tests that leaked memory
+        leak_bytes (int): Total bytes leaked
     """
     col = terminal.Color()
     green = col.start(terminal.Color.GREEN)
@@ -240,5 +258,8 @@ def show_summary(passed, failed, skipped, elapsed, leaked=0):
              f'{red}{failed} failed{reset}',
              f'{yellow}{skipped} skipped{reset}']
     if leaked:
-        parts.append(f'{magenta}{leaked} leaked{reset}')
+        leak_str = f'{leaked} leaked'
+        if leak_bytes:
+            leak_str += f' ({format_bytes(leak_bytes)})'
+        parts.append(f'{magenta}{leak_str}{reset}')
     print(f'Results: {", ".join(parts)} in {format_duration(elapsed)}')

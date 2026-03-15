@@ -26,7 +26,9 @@ from uman_pkg import build, settings
 from uman_pkg.util import run_pytest, show_summary
 
 # Named tuple for test result counts
-TestCounts = namedtuple('TestCounts', ['passed', 'failed', 'skipped'])
+TestCounts = namedtuple('TestCounts', ['passed', 'failed', 'skipped',
+                                       'leaked'],
+                        defaults=[0])
 
 # Patterns for parsing linker-list symbols from nm output
 # Format: _u_boot_list_2_ut_<suite>_2_<test>
@@ -42,6 +44,7 @@ RE_TEST_NAME = re.compile(r'Test:\s*(\S+)')
 RE_RESULT = re.compile(r'Result:\s*(PASS|FAIL|SKIP):?\s+(\S+)')
 RE_SUMMARY = re.compile(r'Tests run:\s*(\d+),.*failures:\s*(\d+)')
 RE_TEST_FAILED = re.compile(r"Test '.+' failed \d+ times")
+RE_LEAK = re.compile(r'Leak:\s+(\d+)\s+alloc')
 
 # Unit test flags from include/test/test.h
 UTF_FLAT_TREE = 0x08
@@ -609,8 +612,12 @@ def parse_results(output, show_results=False, col=None):
     passed = 0
     failed = 0
     skipped = 0
+    leaked = 0
 
     for line in output.splitlines():
+        if RE_LEAK.match(line):
+            leaked += 1
+            continue
         result_match = RE_RESULT.match(line)
         if result_match:
             status, name = result_match.groups()
@@ -625,7 +632,7 @@ def parse_results(output, show_results=False, col=None):
 
     if not passed and not failed and not skipped:
         return None
-    return TestCounts(passed, failed, skipped)
+    return TestCounts(passed, failed, skipped, leaked)
 
 
 def count_tests(sandbox, specs):
@@ -667,6 +674,7 @@ class Progress:
         self.passed = 0
         self.failed = 0
         self.skipped = 0
+        self.leaked = 0
         self.buf = ''
         self.pending = False  # A Test: line seen, not yet resolved
 
@@ -682,14 +690,21 @@ class Progress:
             hdr = f'{done}/{self.total}:'
         else:
             hdr = f'{done}:'
-        sys.stderr.write(
-            f'\r  {hdr} {grn}{self.passed} passed{rst}, '
-            f'{red}{self.failed} failed{rst}, '
-            f'{yel}{self.skipped} skipped{rst}')
+        mag = col.start(terminal.Color.MAGENTA)
+        parts = [f'{grn}{self.passed} passed{rst}',
+                 f'{red}{self.failed} failed{rst}',
+                 f'{yel}{self.skipped} skipped{rst}']
+        if self.leaked:
+            parts.append(f'{mag}{self.leaked} leaked{rst}')
+        sys.stderr.write(f'\r  {hdr} {", ".join(parts)}')
         sys.stderr.flush()
 
     def _process_line(self, line):
         """Process one complete line of output"""
+        if RE_LEAK.match(line):
+            self.leaked += 1
+            self._show()
+            return
         if self.emit:
             match = RE_RESULT.match(line)
             if match:
@@ -868,7 +883,8 @@ def run_tests(sandbox, specs, args, col):
         res = None
 
     if res is not None and res:
-        show_summary(res.passed, res.failed, res.skipped, elapsed)
+        show_summary(res.passed, res.failed, res.skipped, elapsed,
+                     res.leaked)
         ret = result.return_code
     elif res is not None:
         sig = check_signal(result.return_code)

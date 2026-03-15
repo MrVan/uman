@@ -220,7 +220,7 @@ def format_duration(seconds):
     return f'{minutes}m {secs:.1f}s'
 
 
-def show_summary(passed, failed, skipped, elapsed):
+def show_summary(passed, failed, skipped, elapsed, leaked=0):
     """Show a test results summary
 
     Args:
@@ -228,13 +228,17 @@ def show_summary(passed, failed, skipped, elapsed):
         failed (int): Number of tests failed
         skipped (int): Number of tests skipped
         elapsed (float): Time taken in seconds
+        leaked (int): Number of tests that leaked memory
     """
     col = terminal.Color()
     green = col.start(terminal.Color.GREEN)
     red = col.start(terminal.Color.RED)
     yellow = col.start(terminal.Color.YELLOW)
     reset = col.stop()
-    print(f'Results: {green}{passed} passed{reset}, '
-          f'{red}{failed} failed{reset}, '
-          f'{yellow}{skipped} skipped{reset} in '
-          f'{format_duration(elapsed)}')
+    magenta = col.start(terminal.Color.MAGENTA)
+    parts = [f'{green}{passed} passed{reset}',
+             f'{red}{failed} failed{reset}',
+             f'{yellow}{skipped} skipped{reset}']
+    if leaked:
+        parts.append(f'{magenta}{leaked} leaked{reset}')
+    print(f'Results: {", ".join(parts)} in {format_duration(elapsed)}')

@@ -920,17 +920,24 @@ def run_tests(sandbox, specs, args, col):
     else:
         res = None
 
+    # Reset terminal if killed by a signal (e.g. SIGSEGV)
+    sig = check_signal(result.return_code) if result else None
+    if sig:
+        os.system('tset')
+
     if res is not None and res:
         show_summary(res.passed, res.failed, res.skipped, elapsed,
                      res.leaked, res.leak_bytes)
         if res.leak_top and args.show_leaks:
             show_leak_top(res.leak_top, args.show_leaks)
-        ret = result.return_code
-    elif res is not None:
-        sig = check_signal(result.return_code)
         if sig:
             sig_names = {6: 'SIGABRT', 11: 'SIGSEGV', 15: 'SIGTERM'}
-            os.system('tset')
+            tout.error(f'Test crashed '
+                       f'({sig_names.get(sig, f"signal {sig}")})')
+        ret = result.return_code
+    elif res is not None:
+        if sig:
+            sig_names = {6: 'SIGABRT', 11: 'SIGSEGV', 15: 'SIGTERM'}
             tout.error(f'Test crashed '
                        f'({sig_names.get(sig, f"signal {sig}")})')
             ret = result.return_code

@@ -177,6 +177,23 @@ def add_selftest_subparser(subparsers):
     return stest
 
 
+def add_leak_opts(parser):
+    """Add leak-check and malloc-dump options to a parser
+
+    Args:
+        parser: Argument parser to add options to
+    """
+    parser.add_argument(
+        '-M', '--leak-check', action='store_true', dest='leak_check',
+        help='Check for memory leaks around each test')
+    parser.add_argument(
+        '--show-leaks', type=int, default=10, metavar='N', dest='show_leaks',
+        help='Show top N leaks by bytes (default: 10, 0 to disable)')
+    parser.add_argument(
+        '--malloc-dump', metavar='FILE', dest='malloc_dump',
+        help='Write malloc dump to FILE on exit (use %%d for sequence number)')
+
+
 def add_test_opts(parser, board_help=None, board_default=None):
     """Add common test options to a parser
 
@@ -204,9 +221,7 @@ def add_test_opts(parser, board_help=None, board_default=None):
     parser.add_argument(
         '-x', '--exitfirst', action='store_true',
         help='Stop on first test failure')
-    parser.add_argument(
-        '--malloc-dump', metavar='FILE', dest='malloc_dump',
-        help='Write malloc dump to FILE on exit (use %%d for sequence number)')
+    add_leak_opts(parser)
 
 
 def add_build_opts(parser):
@@ -401,11 +416,9 @@ def add_test_subparser(subparsers):
         '-s', '--suites', action='store_true', dest='list_suites',
         help='List available test suites')
     test.add_argument(
-        '--malloc-dump', metavar='FILE', dest='malloc_dump',
-        help='Write malloc dump to FILE on exit (use %%d for sequence number)')
-    test.add_argument(
         '-V', '--test-verbose', action='store_true', dest='test_verbose',
         help='Enable verbose test output')
+    add_leak_opts(test)
     add_build_opts(test)
     return test
 

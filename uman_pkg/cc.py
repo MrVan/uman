@@ -40,8 +40,8 @@ PULSE_DEST = '/tmp/pulse-native'
 ALSA_PULSE_CONF = '/etc/alsa-pulse.conf'
 
 # Default packages to install in containers
-DEFAULT_PACKAGES = ('build-essential gh glab libasound2-plugins'
-                     ' libsox-fmt-pulse pylint sox xclip')
+DEFAULT_PACKAGES = ('build-essential gdb-multiarch gh glab'
+                     ' libasound2-plugins libsox-fmt-pulse pylint sox xclip')
 
 
 def get_log_path(name):

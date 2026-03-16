@@ -315,8 +315,8 @@ class TestBuildSubcommand(TestBase):  # pylint: disable=R0904
     def test_get_cmd_basic(self):
         """Test basic build command generation (LTO disabled by default)"""
         args = cmdline.parse_args(['build', 'sandbox'])
-        self.assertEqual(['buildman', '-L', '-I', '-w', '--boards', 'sandbox',
-                          '-o', '/tmp/b/sandbox'],
+        self.assertEqual(['buildman', '-L', '-I', '-w', '-W', '--boards',
+                          'sandbox', '-o', '/tmp/b/sandbox'],
                          build.get_cmd(args, 'sandbox', '/tmp/b/sandbox'))
 
     def test_run_no_board(self):

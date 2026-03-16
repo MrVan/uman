@@ -23,10 +23,12 @@ from u_boot_pylib import terminal
 from u_boot_pylib import tout
 
 from uman_pkg import build, settings
-from uman_pkg.util import run_pytest, show_summary
+from uman_pkg.util import format_bytes, run_pytest, show_leak_top, show_summary
 
 # Named tuple for test result counts
-TestCounts = namedtuple('TestCounts', ['passed', 'failed', 'skipped'])
+TestCounts = namedtuple('TestCounts', ['passed', 'failed', 'skipped',
+                                       'leaked', 'leak_bytes', 'leak_top'],
+                        defaults=[0, 0, None])
 
 # Patterns for parsing linker-list symbols from nm output
 # Format: _u_boot_list_2_ut_<suite>_2_<test>
@@ -42,6 +44,8 @@ RE_TEST_NAME = re.compile(r'Test:\s*(\S+)')
 RE_RESULT = re.compile(r'Result:\s*(PASS|FAIL|SKIP):?\s+(\S+)')
 RE_SUMMARY = re.compile(r'Tests run:\s*(\d+),.*failures:\s*(\d+)')
 RE_TEST_FAILED = re.compile(r"Test '.+' failed \d+ times")
+RE_LEAK = re.compile(r'Leak:\s+(\d+)\s+alloc')
+RE_LEAK_DETAIL = re.compile(r'\s+[0-9a-f]+\s+([0-9a-f]+)\s+(.*)')
 
 # Unit test flags from include/test/test.h
 UTF_FLAT_TREE = 0x08
@@ -322,6 +326,50 @@ def parse_test_specs(tests):
     return [parse_one_test(t) for t in tests]
 
 
+def resolve_one(suite, pattern, all_tests, known_suites):
+    """Resolve a single (suite, pattern) spec against known tests
+
+    Args:
+        suite (str or None): Suite name, 'all', or None to search
+        pattern (str or None): Test pattern or None for whole suite
+        all_tests (list): List of (suite, test_name) from nm
+        known_suites (set): Set of known suite names
+
+    Returns:
+        tuple: (resolved_list, matched) where resolved_list is a list of
+            (suite, pattern) tuples and matched is True if something matched
+    """
+    if suite == 'all' or suite in known_suites:
+        return [(suite, pattern)], True
+
+    if suite is not None:
+        # Suite doesn't exist - try to find full test name
+        if pattern:
+            full_name = f'{suite}_test_{pattern}'
+        else:
+            full_name = suite
+        for test_suite, test_name in all_tests:
+            if test_name == full_name:
+                return [(test_suite, full_name)], True
+
+        # Try as a pattern across all suites
+        if pattern is None:
+            matches = set()
+            for test_suite, test_name in all_tests:
+                if fnmatch.fnmatch(test_name, f'*{suite}*'):
+                    matches.add(test_suite)
+            if matches:
+                return [(s, f'{s}_test_{suite}*')
+                        for s in sorted(matches)], True
+        return [], False
+
+    # suite is None - search all suites for this pattern
+    for test_suite, test_name in all_tests:
+        if fnmatch.fnmatch(test_name, f'*{pattern}'):
+            return [(test_suite, pattern)], True
+    return [], False
+
+
 def resolve_specs(sandbox, specs):
     """Resolve specs with suite=None or invalid suite by looking up from nm
 
@@ -334,48 +382,23 @@ def resolve_specs(sandbox, specs):
     """
     resolved = []
     unmatched = []
-    all_tests = None  # Lazy load
-    known_suites = None  # Lazy load
+    all_tests = None
+    known_suites = None
 
     for suite, pattern in specs:
-        if suite is not None and suite != 'all':
-            # Check if suite exists
+        if suite not in (None, 'all'):
             if known_suites is None:
-                if all_tests is None:
-                    all_tests = get_tests_from_nm(sandbox)
-                known_suites = {s for s, _ in all_tests}
-
-            if suite in known_suites:
-                resolved.append((suite, pattern))
-            else:
-                # Suite doesn't exist - try to find full test name
-                # Reconstruct the original test name
-                if pattern:
-                    full_name = f'{suite}_test_{pattern}'
-                else:
-                    full_name = suite
-                found = False
-                for test_suite, test_name in all_tests:
-                    if test_name == full_name:
-                        resolved.append((test_suite, full_name))
-                        found = True
-                        break
-                if not found:
-                    unmatched.append((suite, pattern))
-        elif suite == 'all':
-            resolved.append((suite, pattern))
-        else:
-            # Need to find suite(s) for this pattern
-            if all_tests is None:
                 all_tests = get_tests_from_nm(sandbox)
-            found = False
-            for test_suite, test_name in all_tests:
-                if fnmatch.fnmatch(test_name, f'*{pattern}'):
-                    resolved.append((test_suite, pattern))
-                    found = True
-                    break  # Only add first match
-            if not found:
-                unmatched.append((None, pattern))
+                known_suites = {s for s, _ in all_tests}
+        elif suite is None and all_tests is None:
+            all_tests = get_tests_from_nm(sandbox)
+            known_suites = {s for s, _ in all_tests}
+
+        found, matched = resolve_one(suite, pattern,
+                                     all_tests or [], known_suites or set())
+        resolved.extend(found)
+        if not matched:
+            unmatched.append((suite, pattern))
 
     return resolved, unmatched
 
@@ -446,7 +469,7 @@ def has_emit_result():
 
 
 def build_ut_cmd(sandbox, specs, full=False, verbose=False, legacy=False,
-                 manual=False, malloc_dump=None):
+                 manual=False, malloc_dump=None, leak_check=False):
     """Build the sandbox command line for running tests
 
     Args:
@@ -457,6 +480,7 @@ def build_ut_cmd(sandbox, specs, full=False, verbose=False, legacy=False,
         legacy (bool): Legacy mode (don't use -E flag for older U-Boot)
         manual (bool): Force manual tests to run
         malloc_dump (str or None): File to write malloc dump to on exit
+        leak_check (bool): Check for memory leaks around each test
 
     Returns:
         list: Command and arguments
@@ -481,6 +505,8 @@ def build_ut_cmd(sandbox, specs, full=False, verbose=False, legacy=False,
         flags += '-E '
     if manual:
         flags += '-m '
+    if leak_check:
+        flags += '-L '
     cmds = []
     for suite, pattern in specs:
         if pattern:
@@ -587,8 +613,35 @@ def parse_results(output, show_results=False, col=None):
     passed = 0
     failed = 0
     skipped = 0
+    leaked = 0
+    leak_bytes = 0
+    cur_test = None
+    cur_leak_bytes = 0
+    cur_details = []
+    leak_top = []
+
+    def flush_leak():
+        if cur_leak_bytes and cur_test:
+            leak_top.append((cur_leak_bytes, cur_test, cur_details))
 
     for line in output.splitlines():
+        test_match = RE_TEST_NAME.match(line)
+        if test_match:
+            flush_leak()
+            cur_test = test_match.group(1)
+            cur_leak_bytes = 0
+            cur_details = []
+            continue
+        if RE_LEAK.match(line):
+            leaked += 1
+            continue
+        detail = RE_LEAK_DETAIL.match(line)
+        if detail:
+            nbytes = int(detail.group(1), 16)
+            leak_bytes += nbytes
+            cur_leak_bytes += nbytes
+            cur_details.append((nbytes, detail.group(2)))
+            continue
         result_match = RE_RESULT.match(line)
         if result_match:
             status, name = result_match.groups()
@@ -600,10 +653,16 @@ def parse_results(output, show_results=False, col=None):
                 skipped += 1
             if show_results:
                 show_result(status, name, col)
+            flush_leak()
+            cur_leak_bytes = 0
+            cur_details = []
+    flush_leak()
 
-    if not passed and not failed and not skipped:
+    if not passed and not failed and not skipped and not leaked:
         return None
-    return TestCounts(passed, failed, skipped)
+    leak_top.sort(reverse=True)
+    return TestCounts(passed, failed, skipped, leaked, leak_bytes,
+                      leak_top)
 
 
 def count_tests(sandbox, specs):
@@ -645,6 +704,8 @@ class Progress:
         self.passed = 0
         self.failed = 0
         self.skipped = 0
+        self.leaked = 0
+        self.leak_bytes = 0
         self.buf = ''
         self.pending = False  # A Test: line seen, not yet resolved
 
@@ -660,14 +721,28 @@ class Progress:
             hdr = f'{done}/{self.total}:'
         else:
             hdr = f'{done}:'
-        sys.stderr.write(
-            f'\r  {hdr} {grn}{self.passed} passed{rst}, '
-            f'{red}{self.failed} failed{rst}, '
-            f'{yel}{self.skipped} skipped{rst}')
+        mag = col.start(terminal.Color.MAGENTA)
+        parts = [f'{grn}{self.passed} passed{rst}',
+                 f'{red}{self.failed} failed{rst}',
+                 f'{yel}{self.skipped} skipped{rst}']
+        if self.leaked:
+            leak_str = f'{self.leaked} leaked'
+            if self.leak_bytes:
+                leak_str += f' ({format_bytes(self.leak_bytes)})'
+            parts.append(f'{mag}{leak_str}{rst}')
+        sys.stderr.write(f'\r  {hdr} {", ".join(parts)}')
         sys.stderr.flush()
 
     def _process_line(self, line):
         """Process one complete line of output"""
+        if RE_LEAK.match(line):
+            self.leaked += 1
+            self._show()
+            return
+        detail = RE_LEAK_DETAIL.match(line)
+        if detail:
+            self.leak_bytes += int(detail.group(1), 16)
+            return
         if self.emit:
             match = RE_RESULT.match(line)
             if match:
@@ -710,40 +785,25 @@ class Progress:
             sys.stderr.flush()
 
 
-def run_tests(sandbox, specs, args, col):  # pylint: disable=R0914
-    """Run sandbox tests
+def run_ut(cmd, sandbox, specs):
+    """Run a ut command and capture the output
+
+    Sets up the persistent-data directory and shows live progress on
+    stderr when available.
 
     Args:
+        cmd (list): Command and arguments to run
         sandbox (str): Path to sandbox executable
-        specs (list): List of (suite, pattern) tuples from parse_test_specs
-        args (argparse.Namespace): Arguments from cmdline
-        col (terminal.Color): Color object for output
+        specs (list): List of (suite, pattern) tuples
 
     Returns:
-        int: Exit code from tests
+        tuple: (result, elapsed) or (None, 0) on failure
     """
-    # Ensure dm init data files exist if needed
-    if needs_dm_init(specs) and not ensure_dm_init_files():
-        return 1
-
-    cmd = build_ut_cmd(sandbox, specs, full=args.flattree_too,
-                       verbose=args.test_verbose, legacy=args.legacy,
-                       manual=args.manual,
-                       malloc_dump=args.malloc_dump)
-
-    if args.dry_run:
-        tout.notice(shlex.join(cmd))
-        return 0
-
-    tout.info(f"Running: {shlex.join(cmd)}")
-
-    # Set up environment with persistent data directory
     build_dir = settings.get('build_dir', '/tmp/b')
     persist_dir = os.path.join(build_dir, 'sandbox', 'persistent-data')
     env = os.environ.copy()
     env['U_BOOT_PERSISTENT_DATA_DIR'] = persist_dir
 
-    # Show live progress if stderr is a terminal
     emit = has_emit_result()
     if sys.stderr.isatty():
         total = count_tests(sandbox, specs)
@@ -757,27 +817,38 @@ def run_tests(sandbox, specs, args, col):  # pylint: disable=R0914
         result = command.run_one(*cmd, capture=True, env=env,
                                  output_func=output_func)
     except command.CommandExc as exc:
-        # Tests may fail but still produce parseable output
         result = exc.result
         if result and isinstance(result.stdout, (bytes, bytearray)):
             result.to_output(False)
         if not result:
             tout.error(f'Command failed: {exc}')
-            return 1
+            return None, 0
     finally:
         if progress:
             progress.finish()
-    elapsed = time.time() - start_time
+    return result, time.time() - start_time
 
+
+def show_test_output(result, args, col):
+    """Parse and display test results
+
+    Args:
+        result (CommandResult): Output from running tests
+        args (argparse.Namespace): Arguments from cmdline
+        col (terminal.Color): Color object for output
+
+    Returns:
+        TestCounts, False, or None: Parsed result counts, False if no
+            results were found, None on error
+    """
     # Detect old U-Boot that doesn't understand -E or -F flags
     if 'failed while parsing option: -E' in result.stdout:
         tout.error('U-Boot does not support -E flag; use -L for legacy mode')
-        return 1
+        return None
     if 'failed while parsing option: -F' in result.stdout:
         tout.error('U-Boot does not support -F flag; use -f to run all tests')
-        return 1
+        return None
 
-    # Parse results first to check for failures
     legacy = args.legacy or not has_emit_result()
     res = parse_results(result.stdout, show_results=args.results, col=col)
     if not res and legacy:
@@ -789,7 +860,6 @@ def run_tests(sandbox, specs, args, col):  # pylint: disable=R0914
     # Print output in verbose mode, if there are failures, or no results
     if result.stdout and not args.results:
         if args.test_verbose or (res and res.failed) or not res:
-            # Skip U-Boot banner, show only test output
             in_tests = False
             for line in result.stdout.splitlines():
                 if not in_tests:
@@ -797,29 +867,130 @@ def run_tests(sandbox, specs, args, col):  # pylint: disable=R0914
                         in_tests = True
                 if in_tests:
                     print(line)
-    if res:
-        show_summary(res.passed, res.failed, res.skipped, elapsed)
-        return result.return_code
+    return res or False
 
-    # Check for crash (signal termination)
-    ret = result.return_code
-    sig = None
-    if ret < 0:
-        sig = -ret
-    elif ret > 128:
-        sig = ret - 128
+
+def check_signal(return_code):
+    """Check if a return code indicates signal termination
+
+    Args:
+        return_code (int): Process return code
+
+    Returns:
+        int or None: Signal number, or None if not a signal
+    """
+    if return_code < 0:
+        return -return_code
+    if return_code > 128:
+        return return_code - 128
+    return None
+
+
+def run_tests(sandbox, specs, args, col):
+    """Run sandbox tests
+
+    Args:
+        sandbox (str): Path to sandbox executable
+        specs (list): List of (suite, pattern) tuples from parse_test_specs
+        args (argparse.Namespace): Arguments from cmdline
+        col (terminal.Color): Color object for output
+
+    Returns:
+        int: Exit code from tests
+    """
+    if needs_dm_init(specs) and not ensure_dm_init_files():
+        return 1
+
+    cmd = build_ut_cmd(sandbox, specs, full=args.flattree_too,
+                       verbose=args.test_verbose, legacy=args.legacy,
+                       manual=args.manual,
+                       malloc_dump=args.malloc_dump,
+                       leak_check=args.leak_check)
+
+    if args.dry_run:
+        tout.notice(shlex.join(cmd))
+        return 0
+
+    tout.info(f"Running: {shlex.join(cmd)}")
+    ret = 1
+
+    result, elapsed = run_ut(cmd, sandbox, specs)
+    if result:
+        res = show_test_output(result, args, col)
+    else:
+        res = None
+
+    # Reset terminal if killed by a signal (e.g. SIGSEGV)
+    sig = check_signal(result.return_code) if result else None
     if sig:
-        sig_names = {6: 'SIGABRT', 11: 'SIGSEGV', 15: 'SIGTERM'}
-        sig_name = sig_names.get(sig, f'signal {sig}')
         os.system('tset')
-        tout.error(f'Test crashed ({sig_name})')
-        return ret
 
-    tout.warning('No results detected (use -L for older U-Boot)')
-    return 1
+    if res is not None and res:
+        show_summary(res.passed, res.failed, res.skipped, elapsed,
+                     res.leaked, res.leak_bytes)
+        if res.leak_top and args.show_leaks:
+            show_leak_top(res.leak_top, args.show_leaks)
+        if sig:
+            sig_names = {6: 'SIGABRT', 11: 'SIGSEGV', 15: 'SIGTERM'}
+            tout.error(f'Test crashed '
+                       f'({sig_names.get(sig, f"signal {sig}")})')
+        ret = result.return_code
+    elif res is not None:
+        if sig:
+            sig_names = {6: 'SIGABRT', 11: 'SIGSEGV', 15: 'SIGTERM'}
+            tout.error(f'Test crashed '
+                       f'({sig_names.get(sig, f"signal {sig}")})')
+            ret = result.return_code
+        else:
+            tout.warning('No results detected (use -L for older U-Boot)')
+
+    return ret
 
 
-def do_test(args):  # pylint: disable=R0912
+def report_unmatched(unmatched):
+    """Report unmatched test specs to stderr
+
+    Args:
+        unmatched (list): List of (suite, pattern) tuples that did not match
+    """
+    for suite, pattern in unmatched:
+        if suite and pattern:
+            tout.error(f'No tests found matching: {suite}.{pattern}')
+        elif suite:
+            tout.error(f'No tests found in suite: {suite}')
+        else:
+            tout.error(f'No tests found matching: {pattern}')
+
+
+def list_suites(sandbox):
+    """List available test suites
+
+    Args:
+        sandbox (str): Path to sandbox executable
+    """
+    suites = get_suites_from_nm(sandbox)
+    tout.notice('Available test suites:')
+    for suite in suites:
+        print(f'  {suite}')
+
+
+def list_tests(sandbox, suite):
+    """List available tests, optionally filtered by suite
+
+    Args:
+        sandbox (str): Path to sandbox executable
+        suite (str or None): Suite name to filter by, or None for all
+    """
+    tests = get_tests_from_nm(sandbox, suite)
+    if suite:
+        tout.notice(f'Tests in suite "{suite}":')
+    else:
+        tout.notice('Available tests:')
+    for suite_name, test_name in tests:
+        print(f'  {suite_name}.{test_name}')
+
+
+def do_test(args):
     """Handle test command - run U-Boot sandbox tests
 
     Args:
@@ -829,8 +1000,8 @@ def do_test(args):  # pylint: disable=R0912
         int: Exit code
     """
     board = args.board or 'sandbox'
+    ret = 0
 
-    # Build if requested
     if args.build:
         if not build.build_board(
                 board, args.dry_run, lto=args.lto,
@@ -839,52 +1010,25 @@ def do_test(args):  # pylint: disable=R0912
                 jobs=args.jobs, trace=args.trace,
                 trace_early=not args.no_trace_early,
                 output_dir=args.output_dir):
-            return 1
+            ret = 1
 
-    sandbox = get_sandbox_path()
-    if not sandbox:
+    sandbox = None if ret else get_sandbox_path()
+    if not ret and not sandbox:
         tout.error(f'Sandbox not found. Build first with: uman build {board}')
-        return 1
+        ret = 1
 
-    # Handle list suites
-    if args.list_suites:
-        suites = get_suites_from_nm(sandbox)
-        tout.notice('Available test suites:')
-        for suite in suites:
-            print(f'  {suite}')
-        return 0
-
-    # Handle list tests
-    if args.list_tests:
-        suite = args.tests[0] if args.tests else None
-        tests = get_tests_from_nm(sandbox, suite)
-        if suite:
-            tout.notice(f'Tests in suite "{suite}":')
+    if not ret and args.list_suites:
+        list_suites(sandbox)
+    elif not ret and args.list_tests:
+        list_tests(sandbox, args.tests[0] if args.tests else None)
+    elif not ret:
+        specs = parse_test_specs(args.tests)
+        specs, unmatched = resolve_specs(sandbox, specs)
+        if not unmatched:
+            unmatched = validate_specs(sandbox, specs)
+        if unmatched:
+            report_unmatched(unmatched)
+            ret = 1
         else:
-            tout.notice('Available tests:')
-        for suite_name, test_name in tests:
-            print(f'  {suite_name}.{test_name}')
-        return 0
-
-    # Parse test specs
-    specs = parse_test_specs(args.tests)
-
-    # Resolve any specs that need suite lookup
-    specs, unmatched = resolve_specs(sandbox, specs)
-    if unmatched:
-        for suite, pattern in unmatched:
-            tout.error(f'No tests found matching: {pattern}')
-        return 1
-
-    # Validate that specs match actual tests
-    unmatched = validate_specs(sandbox, specs)
-    if unmatched:
-        for suite, pattern in unmatched:
-            if pattern:
-                tout.error(f'No tests found matching: {suite}.{pattern}')
-            else:
-                tout.error(f'No tests found in suite: {suite}')
-        return 1
-
-    # Run tests
-    return run_tests(sandbox, specs, args, args.col)
+            ret = run_tests(sandbox, specs, args, args.col)
+    return ret

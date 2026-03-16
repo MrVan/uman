@@ -716,6 +716,7 @@ hooks to PATH.
 - ``-T, --trace``: Enable function tracing; adds CONFIG_TRACE and
   CONFIG_TRACE_EARLY (use with -b)
 - ``--no-trace-early``: Disable TRACE_EARLY when using -T (use with -b)
+- ``--leak-check``: Check for memory leaks around each test using mallinfo()
 - ``--malloc-dump FILE``: Write malloc heap dump on exit; ``%d`` in the filename
   is expanded to a sequence number
 - ``--no-timeout``: Disable test timeout
@@ -866,6 +867,8 @@ without going through pytest. This is faster for quick iteration on C code.
 - ``-j, --jobs JOBS``: Number of parallel jobs (use with -b)
 - ``-l, --list``: List available tests
 - ``-L, --lto``: Enable LTO when building (use with -b)
+- ``--leak-check``: Check for memory leaks around each test using mallinfo()
+- ``--show-leaks N``: Show top N leaks by bytes (default: 10, 0 to disable)
 - ``--legacy``: Use legacy result parsing (for old U-Boot)
 - ``--malloc-dump FILE``: Write malloc heap dump on exit; ``%d`` in the filename
   is expanded to a sequence number

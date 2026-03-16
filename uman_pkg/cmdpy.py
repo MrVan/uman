@@ -27,8 +27,9 @@ from u_boot_pylib import tout
 
 from uman_pkg import build as build_mod
 from uman_pkg import settings
-from uman_pkg.cmdtest import get_sandbox_path
-from uman_pkg.util import exec_cmd, get_uboot_dir, show_summary
+from uman_pkg.cmdtest import get_sandbox_path, parse_results
+from uman_pkg.util import (exec_cmd, get_uboot_dir, show_leak_top,
+                            show_summary)
 
 # Fallback hostname directory for test hooks (has standard QEMU board configs)
 HOOKS_FALLBACK = 'travis-ci'
@@ -471,6 +472,8 @@ def build_pytest_cmd(args):
         cmd.append('--no-full')
     if args.malloc_dump:
         cmd.extend(['--malloc-dump', args.malloc_dump])
+    if args.leak_check:
+        cmd.append('--leak-check')
 
     # Add extra pytest arguments (after --)
     if args.extra_args:
@@ -1154,9 +1157,8 @@ def do_pollute(args):
         base_dir = settings.get('build_dir', '/tmp/b')
         build_dir = f'{base_dir}/{args.board}-pollute'
         tout.notice(f'Building to {build_dir}...')
-        cmd = ['buildman', '-I', '-w', '--boards', args.board, '-o', build_dir]
-        if not args.lto:
-            cmd.insert(1, '-L')
+        cmd = ['buildman'] + build_mod.base_bm_args(args.board, build_dir,
+                                                    args.lto)
         result = exec_cmd(cmd, args.dry_run, capture=False)
         if result and result.return_code != 0:
             tout.error('Build failed')
@@ -1364,7 +1366,9 @@ def do_pytest(args):  # pylint: disable=too-many-return-statements,too-many-bran
     if args.gdb:
         return run_with_gdb(args)
 
+    start_time = time.time()
     result = exec_cmd(cmd, args.dry_run, env=env, capture=False)
+    elapsed = time.time() - start_time
 
     if result is None:  # dry-run
         qemu_cmd = get_qemu_command(board, args)
@@ -1377,8 +1381,29 @@ def do_pytest(args):  # pylint: disable=too-many-return-statements,too-many-bran
             print(result.stderr, file=sys.stderr)
         if not args.quiet:
             tout.error('pytest failed')
-        return result.return_code
+    else:
+        if not args.quiet:
+            tout.notice('pytest passed')
 
-    if not args.quiet:
-        tout.notice('pytest passed')
-    return 0
+    # Show leak summary from test log if leak-check was enabled
+    if args.leak_check:
+        if args.output_dir:
+            build_dir = args.output_dir
+        else:
+            base_dir = settings.get('build_dir', '/tmp/b')
+            build_dir = f'{base_dir}/{args.board}'
+        log_path = os.path.join(build_dir, 'test-log.html')
+        if os.path.exists(log_path):
+            import html
+            with open(log_path) as fh:
+                text = fh.read()
+            # Strip HTML tags first, then unescape entities
+            text = re.sub(r'<[^>]+>', '\n', text)
+            text = html.unescape(text)
+            res = parse_results(text)
+            if res and res.leaked:
+                show_summary(res.passed, res.failed, res.skipped, elapsed,
+                             res.leaked, res.leak_bytes)
+                if res.leak_top and args.show_leaks:
+                    show_leak_top(res.leak_top, args.show_leaks)
+    return result.return_code

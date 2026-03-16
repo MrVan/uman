@@ -220,7 +220,24 @@ def format_duration(seconds):
     return f'{minutes}m {secs:.1f}s'
 
 
-def show_summary(passed, failed, skipped, elapsed):
+def format_bytes(nbytes):
+    """Format a byte count with K/M suffixes
+
+    Args:
+        nbytes (int): Number of bytes
+
+    Returns:
+        str: Formatted string (e.g. '1.2K', '3.5M', '512')
+    """
+    if nbytes >= 1024 * 1024:
+        return f'{nbytes / 1024 / 1024:.1f}M'
+    if nbytes >= 1024:
+        return f'{nbytes / 1024:.1f}K'
+    return str(nbytes)
+
+
+def show_summary(passed, failed, skipped, elapsed, leaked=0,
+                  leak_bytes=0):
     """Show a test results summary
 
     Args:
@@ -228,13 +245,46 @@ def show_summary(passed, failed, skipped, elapsed):
         failed (int): Number of tests failed
         skipped (int): Number of tests skipped
         elapsed (float): Time taken in seconds
+        leaked (int): Number of tests that leaked memory
+        leak_bytes (int): Total bytes leaked
     """
     col = terminal.Color()
     green = col.start(terminal.Color.GREEN)
     red = col.start(terminal.Color.RED)
     yellow = col.start(terminal.Color.YELLOW)
     reset = col.stop()
-    print(f'Results: {green}{passed} passed{reset}, '
-          f'{red}{failed} failed{reset}, '
-          f'{yellow}{skipped} skipped{reset} in '
-          f'{format_duration(elapsed)}')
+    magenta = col.start(terminal.Color.MAGENTA)
+    parts = [f'{green}{passed} passed{reset}',
+             f'{red}{failed} failed{reset}',
+             f'{yellow}{skipped} skipped{reset}']
+    if leaked:
+        leak_str = f'{leaked} leaked'
+        if leak_bytes:
+            leak_str += f' ({format_bytes(leak_bytes)})'
+        parts.append(f'{magenta}{leak_str}{reset}')
+    print(f'Results: {", ".join(parts)} in {format_duration(elapsed)}')
+
+
+def show_leak_top(leak_top, count):
+    """Show the top leaking tests with deduplicated backtraces
+
+    Args:
+        leak_top (list): List of (bytes, name, details) tuples
+        count (int): Number of entries to show
+    """
+    print('Top leaks:')
+    for nbytes, name, details in leak_top[:count]:
+        name = name.rstrip(':')
+        print(f'  {format_bytes(nbytes):>7s}  {name}')
+        by_trace = {}
+        for size, trace in details:
+            if trace in by_trace:
+                cnt, total = by_trace[trace]
+                by_trace[trace] = (cnt + 1, total + size)
+            else:
+                by_trace[trace] = (1, size)
+        for trace, (cnt, total) in by_trace.items():
+            if cnt > 1:
+                print(f'          {cnt}x {format_bytes(total)}  {trace}')
+            else:
+                print(f'             {format_bytes(total)}  {trace}')

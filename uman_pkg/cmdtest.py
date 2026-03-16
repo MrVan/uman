@@ -851,7 +851,50 @@ def run_tests(sandbox, specs, args, col):
     return 1
 
 
-def do_test(args):  # pylint: disable=R0912
+def report_unmatched(unmatched):
+    """Report unmatched test specs to stderr
+
+    Args:
+        unmatched (list): List of (suite, pattern) tuples that did not match
+    """
+    for suite, pattern in unmatched:
+        if suite and pattern:
+            tout.error(f'No tests found matching: {suite}.{pattern}')
+        elif suite:
+            tout.error(f'No tests found in suite: {suite}')
+        else:
+            tout.error(f'No tests found matching: {pattern}')
+
+
+def list_suites(sandbox):
+    """List available test suites
+
+    Args:
+        sandbox (str): Path to sandbox executable
+    """
+    suites = get_suites_from_nm(sandbox)
+    tout.notice('Available test suites:')
+    for suite in suites:
+        print(f'  {suite}')
+
+
+def list_tests(sandbox, suite):
+    """List available tests, optionally filtered by suite
+
+    Args:
+        sandbox (str): Path to sandbox executable
+        suite (str or None): Suite name to filter by, or None for all
+    """
+    tests = get_tests_from_nm(sandbox, suite)
+    if suite:
+        tout.notice(f'Tests in suite "{suite}":')
+    else:
+        tout.notice('Available tests:')
+    for suite_name, test_name in tests:
+        print(f'  {suite_name}.{test_name}')
+
+
+def do_test(args):
     """Handle test command - run U-Boot sandbox tests
 
     Args:
@@ -861,8 +904,8 @@ def do_test(args):  # pylint: disable=R0912
         int: Exit code
     """
     board = args.board or 'sandbox'
+    ret = 0
 
-    # Build if requested
     if args.build:
         if not build.build_board(
                 board, args.dry_run, lto=args.lto,
@@ -871,52 +914,25 @@ def do_test(args):  # pylint: disable=R0912
                 jobs=args.jobs, trace=args.trace,
                 trace_early=not args.no_trace_early,
                 output_dir=args.output_dir):
-            return 1
+            ret = 1
 
-    sandbox = get_sandbox_path()
-    if not sandbox:
+    sandbox = None if ret else get_sandbox_path()
+    if not ret and not sandbox:
         tout.error(f'Sandbox not found. Build first with: uman build {board}')
-        return 1
+        ret = 1
 
-    # Handle list suites
-    if args.list_suites:
-        suites = get_suites_from_nm(sandbox)
-        tout.notice('Available test suites:')
-        for suite in suites:
-            print(f'  {suite}')
-        return 0
-
-    # Handle list tests
-    if args.list_tests:
-        suite = args.tests[0] if args.tests else None
-        tests = get_tests_from_nm(sandbox, suite)
-        if suite:
-            tout.notice(f'Tests in suite "{suite}":')
+    if not ret and args.list_suites:
+        list_suites(sandbox)
+    elif not ret and args.list_tests:
+        list_tests(sandbox, args.tests[0] if args.tests else None)
+    elif not ret:
+        specs = parse_test_specs(args.tests)
+        specs, unmatched = resolve_specs(sandbox, specs)
+        if not unmatched:
+            unmatched = validate_specs(sandbox, specs)
+        if unmatched:
+            report_unmatched(unmatched)
+            ret = 1
         else:
-            tout.notice('Available tests:')
-        for suite_name, test_name in tests:
-            print(f'  {suite_name}.{test_name}')
-        return 0
-
-    # Parse test specs
-    specs = parse_test_specs(args.tests)
-
-    # Resolve any specs that need suite lookup
-    specs, unmatched = resolve_specs(sandbox, specs)
-    if unmatched:
-        for suite, pattern in unmatched:
-            tout.error(f'No tests found matching: {pattern}')
-        return 1
-
-    # Validate that specs match actual tests
-    unmatched = validate_specs(sandbox, specs)
-    if unmatched:
-        for suite, pattern in unmatched:
-            if pattern:
-                tout.error(f'No tests found matching: {suite}.{pattern}')
-            else:
-                tout.error(f'No tests found in suite: {suite}')
-        return 1
-
-    # Run tests
-    return run_tests(sandbox, specs, args, args.col)
+            ret = run_tests(sandbox, specs, args, args.col)
+    return ret

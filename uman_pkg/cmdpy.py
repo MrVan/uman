@@ -199,12 +199,20 @@ def list_boards_by_pattern(pattern):
     try:
         if uboot_dir:
             os.chdir(uboot_dir)
-        result = command.run_pipe([['buildman', '-nv', pattern]], capture=True,
-                                   capture_stderr=True, raise_on_error=False)
+        result = command.run_pipe(
+            [[build_mod.get_buildman(), '-nv', pattern]], capture=True,
+            capture_stderr=True, raise_on_error=False)
     finally:
         os.chdir(orig_dir)
 
     if result.return_code != 0:
+        stderr = result.stderr.strip() if result.stderr else ''
+        stdout = result.stdout.strip() if result.stdout else ''
+        msg = stderr or stdout
+        if msg:
+            last = msg.splitlines()[-1]
+            if 'No matching' not in last:
+                tout.warning(f'buildman: {last}')
         return []
 
     boards = []
@@ -1157,8 +1165,8 @@ def do_pollute(args):
         base_dir = settings.get('build_dir', '/tmp/b')
         build_dir = f'{base_dir}/{args.board}-pollute'
         tout.notice(f'Building to {build_dir}...')
-        cmd = ['buildman'] + build_mod.base_bm_args(args.board, build_dir,
-                                                    args.lto)
+        cmd = [build_mod.get_buildman()] + build_mod.base_bm_args(
+            args.board, build_dir, args.lto)
         result = exec_cmd(cmd, args.dry_run, capture=False)
         if result and result.return_code != 0:
             tout.error('Build failed')
@@ -1263,23 +1271,21 @@ def do_pytest(args):  # pylint: disable=too-many-return-statements,too-many-bran
         int: Exit code
     """
     if args.list_boards:
-        qemu_boards = list_qemu_boards()
-        sandbox_boards = list_boards_by_pattern('sandbox')
-        m68k_boards = list_boards_by_pattern('M5208')
-        if qemu_boards:
-            tout.notice('Available QEMU boards:')
-            for board in qemu_boards:
-                print(f'  {board}')
-        if m68k_boards:
-            tout.notice('Available m68k boards:')
-            for board in m68k_boards:
-                print(f'  {board}')
-        if sandbox_boards:
-            tout.notice('Available sandbox boards:')
-            for board in sandbox_boards:
-                print(f'  {board}')
-        if not qemu_boards and not sandbox_boards and not m68k_boards:
-            tout.warning('No boards found (is buildman configured?)')
+        found = False
+        for label, pattern in [('QEMU', 'qemu'), ('MicroBlaze', 'mbv'),
+                                ('m68k', 'M5208'),
+                                ('sandbox', 'sandbox')]:
+            boards = list_boards_by_pattern(pattern)
+            if boards:
+                tout.notice(f'Available {label} boards:')
+                for board in boards:
+                    print(f'  {board}')
+                found = True
+            elif not found:
+                # First pattern failed — database is probably empty
+                tout.warning(
+                    'No boards found (check ~/.buildman and $UBOOT_TOOLS)')
+                break
         return 0
 
     # Handle -C option: run just the C test part

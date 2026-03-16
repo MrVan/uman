@@ -171,7 +171,7 @@ def get_cmd(args, board, build_dir):
     Returns:
         list: Full buildman command including 'buildman' as first element
     """
-    return ['buildman'] + get_buildman_args(args, board, build_dir)
+    return [get_buildman()] + get_buildman_args(args, board, build_dir)
 
 
 def base_bm_args(board, build_dir, lto=True):

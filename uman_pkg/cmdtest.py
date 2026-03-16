@@ -795,6 +795,22 @@ def show_test_output(result, args, col):
     return res or False
 
 
+def check_signal(return_code):
+    """Check if a return code indicates signal termination
+
+    Args:
+        return_code (int): Process return code
+
+    Returns:
+        int or None: Signal number, or None if not a signal
+    """
+    if return_code < 0:
+        return -return_code
+    if return_code > 128:
+        return return_code - 128
+    return None
+
+
 def run_tests(sandbox, specs, args, col):
     """Run sandbox tests
 
@@ -820,35 +836,29 @@ def run_tests(sandbox, specs, args, col):
         return 0
 
     tout.info(f"Running: {shlex.join(cmd)}")
+    ret = 1
 
     result, elapsed = run_ut(cmd, sandbox, specs)
-    if not result:
-        return 1
+    if result:
+        res = show_test_output(result, args, col)
+    else:
+        res = None
 
-    res = show_test_output(result, args, col)
-    if res is None:
-        return 1
-
-    if res:
+    if res is not None and res:
         show_summary(res.passed, res.failed, res.skipped, elapsed)
-        return result.return_code
+        ret = result.return_code
+    elif res is not None:
+        sig = check_signal(result.return_code)
+        if sig:
+            sig_names = {6: 'SIGABRT', 11: 'SIGSEGV', 15: 'SIGTERM'}
+            os.system('tset')
+            tout.error(f'Test crashed '
+                       f'({sig_names.get(sig, f"signal {sig}")})')
+            ret = result.return_code
+        else:
+            tout.warning('No results detected (use -L for older U-Boot)')
 
-    # Check for crash (signal termination)
-    ret = result.return_code
-    sig = None
-    if ret < 0:
-        sig = -ret
-    elif ret > 128:
-        sig = ret - 128
-    if sig:
-        sig_names = {6: 'SIGABRT', 11: 'SIGSEGV', 15: 'SIGTERM'}
-        sig_name = sig_names.get(sig, f'signal {sig}')
-        os.system('tset')
-        tout.error(f'Test crashed ({sig_name})')
-        return ret
-
-    tout.warning('No results detected (use -L for older U-Boot)')
-    return 1
+    return ret
 
 
 def report_unmatched(unmatched):

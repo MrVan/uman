@@ -409,6 +409,10 @@ def check_qemu_binary(board, board_id):
     if not binary:
         return None, True
 
+    # Skip check if binary contains unexpanded shell variables
+    if '$' in binary:
+        return None, True
+
     return binary, shutil.which(binary) is not None
 
 

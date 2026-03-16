@@ -710,7 +710,92 @@ class Progress:
             sys.stderr.flush()
 
 
-def run_tests(sandbox, specs, args, col):  # pylint: disable=R0914
+def run_ut(cmd, sandbox, specs):
+    """Run a ut command and capture the output
+
+    Sets up the persistent-data directory and shows live progress on
+    stderr when available.
+
+    Args:
+        cmd (list): Command and arguments to run
+        sandbox (str): Path to sandbox executable
+        specs (list): List of (suite, pattern) tuples
+
+    Returns:
+        tuple: (result, elapsed) or (None, 0) on failure
+    """
+    build_dir = settings.get('build_dir', '/tmp/b')
+    persist_dir = os.path.join(build_dir, 'sandbox', 'persistent-data')
+    env = os.environ.copy()
+    env['U_BOOT_PERSISTENT_DATA_DIR'] = persist_dir
+
+    emit = has_emit_result()
+    if sys.stderr.isatty():
+        total = count_tests(sandbox, specs)
+        progress = Progress(emit, total)
+    else:
+        progress = None
+    output_func = progress.update if progress else None
+
+    start_time = time.time()
+    try:
+        result = command.run_one(*cmd, capture=True, env=env,
+                                 output_func=output_func)
+    except command.CommandExc as exc:
+        result = exc.result
+        if result and isinstance(result.stdout, (bytes, bytearray)):
+            result.to_output(False)
+        if not result:
+            tout.error(f'Command failed: {exc}')
+            return None, 0
+    finally:
+        if progress:
+            progress.finish()
+    return result, time.time() - start_time
+
+
+def show_test_output(result, args, col):
+    """Parse and display test results
+
+    Args:
+        result (CommandResult): Output from running tests
+        args (argparse.Namespace): Arguments from cmdline
+        col (terminal.Color): Color object for output
+
+    Returns:
+        TestCounts, False, or None: Parsed result counts, False if no
+            results were found, None on error
+    """
+    # Detect old U-Boot that doesn't understand -E or -F flags
+    if 'failed while parsing option: -E' in result.stdout:
+        tout.error('U-Boot does not support -E flag; use -L for legacy mode')
+        return None
+    if 'failed while parsing option: -F' in result.stdout:
+        tout.error('U-Boot does not support -F flag; use -f to run all tests')
+        return None
+
+    legacy = args.legacy or not has_emit_result()
+    res = parse_results(result.stdout, show_results=args.results, col=col)
+    if not res and legacy:
+        res = parse_legacy_results(result.stdout, show_results=args.results,
+                                   col=col)
+    if not res:
+        res = parse_summary(result.stdout)
+
+    # Print output in verbose mode, if there are failures, or no results
+    if result.stdout and not args.results:
+        if args.test_verbose or (res and res.failed) or not res:
+            in_tests = False
+            for line in result.stdout.splitlines():
+                if not in_tests:
+                    if line.startswith(('Running ', 'Test: ', 'Missing ')):
+                        in_tests = True
+                if in_tests:
+                    print(line)
+    return res or False
+
+
+def run_tests(sandbox, specs, args, col):
     """Run sandbox tests
 
     Args:
@@ -722,7 +807,6 @@ def run_tests(sandbox, specs, args, col):  # pylint: disable=R0914
     Returns:
         int: Exit code from tests
     """
-    # Ensure dm init data files exist if needed
     if needs_dm_init(specs) and not ensure_dm_init_files():
         return 1
 
@@ -737,66 +821,14 @@ def run_tests(sandbox, specs, args, col):  # pylint: disable=R0914
 
     tout.info(f"Running: {shlex.join(cmd)}")
 
-    # Set up environment with persistent data directory
-    build_dir = settings.get('build_dir', '/tmp/b')
-    persist_dir = os.path.join(build_dir, 'sandbox', 'persistent-data')
-    env = os.environ.copy()
-    env['U_BOOT_PERSISTENT_DATA_DIR'] = persist_dir
-
-    # Show live progress if stderr is a terminal
-    emit = has_emit_result()
-    if sys.stderr.isatty():
-        total = count_tests(sandbox, specs)
-        progress = Progress(emit, total)
-    else:
-        progress = None
-    output_func = progress.update if progress else None
-
-    start_time = time.time()
-    try:
-        result = command.run_one(*cmd, capture=True, env=env,
-                                 output_func=output_func)
-    except command.CommandExc as exc:
-        # Tests may fail but still produce parseable output
-        result = exc.result
-        if result and isinstance(result.stdout, (bytes, bytearray)):
-            result.to_output(False)
-        if not result:
-            tout.error(f'Command failed: {exc}')
-            return 1
-    finally:
-        if progress:
-            progress.finish()
-    elapsed = time.time() - start_time
-
-    # Detect old U-Boot that doesn't understand -E or -F flags
-    if 'failed while parsing option: -E' in result.stdout:
-        tout.error('U-Boot does not support -E flag; use -L for legacy mode')
-        return 1
-    if 'failed while parsing option: -F' in result.stdout:
-        tout.error('U-Boot does not support -F flag; use -f to run all tests')
+    result, elapsed = run_ut(cmd, sandbox, specs)
+    if not result:
         return 1
 
-    # Parse results first to check for failures
-    legacy = args.legacy or not has_emit_result()
-    res = parse_results(result.stdout, show_results=args.results, col=col)
-    if not res and legacy:
-        res = parse_legacy_results(result.stdout, show_results=args.results,
-                                   col=col)
-    if not res:
-        res = parse_summary(result.stdout)
+    res = show_test_output(result, args, col)
+    if res is None:
+        return 1
 
-    # Print output in verbose mode, if there are failures, or no results
-    if result.stdout and not args.results:
-        if args.test_verbose or (res and res.failed) or not res:
-            # Skip U-Boot banner, show only test output
-            in_tests = False
-            for line in result.stdout.splitlines():
-                if not in_tests:
-                    if line.startswith(('Running ', 'Test: ', 'Missing ')):
-                        in_tests = True
-                if in_tests:
-                    print(line)
     if res:
         show_summary(res.passed, res.failed, res.skipped, elapsed)
         return result.return_code

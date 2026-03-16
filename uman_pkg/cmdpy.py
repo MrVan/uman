@@ -79,7 +79,7 @@ def setup_riscv_env(board, env):
         env (dict): Environment variables dict to update
     """
     # Select 32-bit or 64-bit OpenSBI based on board name
-    if 'riscv32' in board:
+    if 'riscv32' in board or 'mbv32' in board:
         opensbi = settings.get('opensbi_rv32', fallback=None)
         # Fallback: derive rv32 path from rv64 path
         if not opensbi:
@@ -153,7 +153,7 @@ def pytest_env(board):
     """
     env = {}
 
-    if 'riscv' in board:
+    if 'riscv' in board or 'mbv' in board:
         setup_riscv_env(board, env)
 
     if 'sbsa' in board:
@@ -1352,21 +1352,22 @@ def do_pytest(args):  # pylint: disable=too-many-return-statements,too-many-bran
             if cfg not in adjust_cfg:
                 adjust_cfg.append(cfg)
 
+        pytest_vars = pytest_env(args.board)
         if not build_mod.build_board(
                 args.board, args.dry_run, args.lto,
                 adjust_cfg=adjust_cfg,
                 force_reconfig=args.force_reconfig, fresh=args.fresh,
                 jobs=args.jobs, trace=args.trace,
                 trace_early=not args.no_trace_early,
-                output_dir=args.output_dir):
+                output_dir=args.output_dir, extra_env=pytest_vars):
             return 1
         args.build = False  # Don't build again in pytest
+    else:
+        pytest_vars = pytest_env(args.board)
 
     # Show -G command hint when using -g (not in dry-run mode)
     if args.gdb_phase and not args.gdb and not args.dry_run:
         tout.notice(f'In another terminal: um py -G -B {args.board}')
-
-    pytest_vars = pytest_env(args.board)
     cmd = build_pytest_cmd(args)
 
     env = os.environ.copy()

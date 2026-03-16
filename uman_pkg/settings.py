@@ -27,6 +27,9 @@ blobs_dir = ~/dev/blobs
 opensbi = ~/dev/blobs/opensbi/fw_dynamic.bin
 opensbi_rv32 = ~/dev/blobs/opensbi/fw_dynamic_rv32.bin
 
+# QEMU build directory (built by 'uman setup qemu-build')
+qemu_build_dir = ~/dev/qemu/build
+
 # TF-A firmware directory for ARM SBSA testing (built by 'uman setup')
 tfa_dir = ~/dev/blobs/tfa
 

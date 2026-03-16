@@ -178,6 +178,12 @@ def pytest_env(board):
             hooks = hooks_bin
         path_parts.append(hooks)
 
+    # Add custom QEMU build if present
+    qemu_build = settings.get('qemu_build_dir',
+                              fallback='~/dev/qemu/build')
+    if qemu_build and os.path.isdir(qemu_build):
+        path_parts.append(qemu_build)
+
     if path_parts:
         current_path = os.environ.get('PATH', '')
         env['PATH'] = ':'.join(path_parts) + ':' + current_path
@@ -393,6 +399,54 @@ def get_qemu_binary(board, board_id):
                 pass
 
     return None
+
+
+def show_pytest_hint(args):
+    """Show a hint about why pytest may have failed
+
+    Checks the test log for common failure patterns and prints a
+    helpful message.
+
+    Args:
+        args (argparse.Namespace): Arguments from cmdline
+    """
+    if args.output_dir:
+        build_dir = args.output_dir
+    else:
+        base_dir = settings.get('build_dir', '/tmp/b')
+        build_dir = f'{base_dir}/{args.board}'
+    log_path = os.path.join(build_dir, 'test-log.html')
+    if not os.path.exists(log_path):
+        return
+
+    try:
+        with open(log_path) as fh:
+            text = fh.read()
+    except OSError:
+        return
+
+    # Check for common QEMU failures
+    if 'Lab failure' in text or 'Marking connection bad' in text:
+        # Look for QEMU error in the log
+        import html as html_mod
+        plain = re.sub(r'<[^>]+>', '\n', text)
+        plain = html_mod.unescape(plain)
+        for line in plain.splitlines():
+            line = line.strip()
+            if ('qemu' in line.lower() and
+                    ('not found' in line or 'No such file' in line or
+                     'No machine' in line or 'unsupported' in line or
+                     'error' in line.lower())):
+                tout.notice(f'Hint: {line}')
+                if 'unsupported' in line or 'No machine' in line:
+                    tout.notice(
+                        'Try: uman setup qemu-build')
+                return
+            if 'Could not open' in line or 'Cannot open' in line:
+                tout.notice(f'Hint: {line}')
+                return
+        tout.notice('Hint: QEMU may have failed to start; check '
+                    f'{log_path}')
 
 
 def check_qemu_binary(board, board_id):
@@ -1392,6 +1446,7 @@ def do_pytest(args):  # pylint: disable=too-many-return-statements,too-many-bran
             print(result.stderr, file=sys.stderr)
         if not args.quiet:
             tout.error('pytest failed')
+            show_pytest_hint(args)
     else:
         if not args.quiet:
             tout.notice('pytest passed')

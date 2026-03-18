@@ -1031,8 +1031,10 @@ def run(args):  # pylint: disable=too-many-locals,too-many-branches,too-many-sta
     sock_path = os.path.join(project_src, EDITOR_SOCK)
     try:
         if not existed:
+            tout.progress('Creating container')
             create_container(name, base, dry_run)
 
+        tout.progress('Setting up mounts')
         add_all_mounts(name, project_src, args.mount, args.output,
                        args.no_output, dry_run)
 
@@ -1090,6 +1092,7 @@ def run(args):  # pylint: disable=too-many-locals,too-many-branches,too-many-sta
                 tout.notice(
                     'Running in privileged mode (device-mapper enabled)')
 
+        tout.progress('Starting container')
         ensure_running(name, existed, dry_run)
 
         # In privileged mode, uid namespacing is disabled, so the
@@ -1109,11 +1112,17 @@ def run(args):  # pylint: disable=too-many-locals,too-many-branches,too-many-sta
                       dry_run=dry_run)
 
         # Wait for user and set up (idempotent operations)
+        tout.progress('Waiting for container to be ready')
         wait_for_user(name, dry_run)
+        tout.progress('Configuring container')
         setup_container(name, dry_run)
+        tout.progress('Installing packages')
         install_tools(name, packages, dry_run)
+        tout.progress('Installing Claude Code')
         install_claude(name, dry_run)
+        tout.progress('Setting up uman')
         setup_uman(name, uboot_tools, dry_run)
+        tout.clear_progress()
 
         # Check X11 access for clipboard (image paste)
         if not dry_run and os.path.isdir('/tmp/.X11-unix'):

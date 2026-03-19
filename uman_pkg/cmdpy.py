@@ -1005,6 +1005,107 @@ def run_c_test(args):
     return result.return_code
 
 
+def gdb_monitor(gdb_cmd, channel):
+    """Run GDB and auto-reconnect when the remote connection closes
+
+    Runs GDB in a pseudo-terminal to monitor its output. When
+    'Remote connection closed' appears, automatically sends reconnect
+    and continue commands so the debug session resumes after U-Boot
+    restarts.
+
+    Args:
+        gdb_cmd (list of str): GDB command and arguments
+        channel (str): Remote channel (e.g. 'localhost:1234')
+
+    Returns:
+        int: GDB exit code
+    """
+    import fcntl  # pylint: disable=import-outside-toplevel
+    import pty  # pylint: disable=import-outside-toplevel
+    import select  # pylint: disable=import-outside-toplevel
+    import signal  # pylint: disable=import-outside-toplevel
+    import termios  # pylint: disable=import-outside-toplevel
+    import tty  # pylint: disable=import-outside-toplevel
+
+    master_fd, slave_fd = pty.openpty()
+
+    # Copy host terminal size to pty
+    try:
+        winsz = fcntl.ioctl(sys.stdout, termios.TIOCGWINSZ, b'\0' * 8)
+        fcntl.ioctl(master_fd, termios.TIOCSWINSZ, winsz)
+    except OSError:
+        pass
+
+    proc = subprocess.Popen(
+        gdb_cmd, stdin=slave_fd, stdout=slave_fd, stderr=slave_fd,
+        preexec_fn=os.setsid, close_fds=True)
+    os.close(slave_fd)
+
+    # Forward terminal resizes to GDB
+    orig_winch = signal.getsignal(signal.SIGWINCH)
+
+    def on_winch(signo, frame):  # pylint: disable=unused-argument
+        try:
+            winsz = fcntl.ioctl(sys.stdout, termios.TIOCGWINSZ, b'\0' * 8)
+            fcntl.ioctl(master_fd, termios.TIOCSWINSZ, winsz)
+            os.kill(proc.pid, signal.SIGWINCH)
+        except OSError:
+            pass
+
+    signal.signal(signal.SIGWINCH, on_winch)
+
+    old_attr = termios.tcgetattr(sys.stdin)
+    try:
+        tty.setraw(sys.stdin)
+
+        buf = b''
+        trigger = b'Remote connection closed'
+        reconnect = f'target remote {channel}\nc\n'.encode()
+
+        while True:
+            try:
+                rlist = select.select(
+                    [sys.stdin, master_fd], [], [], 0.5)[0]
+            except (InterruptedError, select.error):
+                continue
+
+            if not rlist and proc.poll() is not None:
+                break
+
+            if sys.stdin in rlist:
+                try:
+                    data = os.read(sys.stdin.fileno(), 1024)
+                except OSError:
+                    break
+                if not data:
+                    break
+                os.write(master_fd, data)
+
+            if master_fd in rlist:
+                try:
+                    data = os.read(master_fd, 4096)
+                except OSError:
+                    break
+                if not data:
+                    break
+                os.write(sys.stdout.fileno(), data)
+
+                buf += data
+                if trigger in buf:
+                    buf = b''
+                    time.sleep(0.5)
+                    os.write(master_fd, reconnect)
+                elif len(buf) > 1024:
+                    buf = buf[-512:]
+
+        proc.wait()
+        return proc.returncode
+    finally:
+        termios.tcsetattr(sys.stdin, termios.TCSADRAIN, old_attr)
+        signal.signal(signal.SIGWINCH, orig_winch)
+        os.close(master_fd)
+
+
 def run_with_gdb(args):
     """Launch gdb to connect to an existing gdbserver
 
@@ -1045,8 +1146,7 @@ def run_with_gdb(args):
         print(' '.join(gdb_cmd))
         return 0
 
-    # Replace this process with gdb so Ctrl-C is handled by gdb
-    os.execvp(gdb_cmd[0], gdb_cmd)
+    return gdb_monitor(gdb_cmd, channel)
 
 
 def collect_tests(args):

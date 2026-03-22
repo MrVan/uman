@@ -864,6 +864,7 @@ without going through pytest. This is faster for quick iteration on C code.
 - ``-f, --force-reconfig``: Force reconfiguration (use with -b)
 - ``-F, --fresh``: Delete build dir before building (use with -b)
 - ``--flattree-too``: Run both live-tree and flat-tree tests (default: live-tree only)
+- ``-g, --gdb``: Run sandbox under gdb-multiarch
 - ``-j, --jobs JOBS``: Number of parallel jobs (use with -b)
 - ``-l, --list``: List available tests
 - ``-L, --lto``: Enable LTO when building (use with -b)

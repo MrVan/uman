@@ -5997,6 +5997,50 @@ Section Headers:
                     result = cmdtest.ensure_dm_init_files()
         self.assertFalse(result)
 
+    def test_run_tests_gdb(self):
+        """Test run_tests with -g launches gdb-multiarch"""
+        cap = []
+
+        def mock_run(cmd, **kwargs):
+            cap.append((cmd, kwargs))
+            return mock.MagicMock(returncode=0)
+
+        args = cmdline.parse_args(['test', '-g', 'dm'])
+        col = terminal.Color()
+        with mock.patch.object(cmdtest, 'has_emit_result',
+                               return_value=True):
+            with mock.patch.object(cmdtest, 'has_no_flat',
+                                   return_value=True):
+                with mock.patch.object(cmdtest, 'ensure_dm_init_files',
+                                       return_value=True):
+                    with mock.patch('subprocess.run', mock_run):
+                        with terminal.capture():
+                            result = cmdtest.run_tests(
+                                '/sb', [('dm', None)], args, col)
+        self.assertEqual(0, result)
+        cmd = cap[0][0]
+        self.assertEqual('gdb-multiarch', cmd[0])
+        self.assertIn('/sb', cmd)
+        self.assertIn('run -T -F -c \'ut -E dm\'', cmd[-1])
+
+    def test_run_tests_gdb_dry_run(self):
+        """Test run_tests with -g and -n shows gdb command"""
+        args = cmdline.parse_args(['-n', 'test', '-g', 'dm'])
+        col = terminal.Color()
+        with mock.patch.object(cmdtest, 'has_emit_result',
+                               return_value=True):
+            with mock.patch.object(cmdtest, 'has_no_flat',
+                                   return_value=True):
+                with mock.patch.object(cmdtest, 'ensure_dm_init_files',
+                                       return_value=True):
+                    with terminal.capture() as (out, err):
+                        result = cmdtest.run_tests(
+                            '/sb', [('dm', None)], args, col)
+        self.assertEqual(0, result)
+        output = out.getvalue()
+        self.assertIn('gdb-multiarch', output)
+        self.assertIn('/sb', output)
+
 
 class TestPytestCTest(TestBase):
     """Tests for the pytest -C (C test) functionality"""

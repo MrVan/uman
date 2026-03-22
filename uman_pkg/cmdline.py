@@ -395,6 +395,9 @@ def add_test_subparser(subparsers):
         '-b', '--build', action='store_true',
         help='Build before running tests')
     test.add_argument(
+        '-g', '--gdb', action='store_true',
+        help='Run sandbox under gdb-multiarch')
+    test.add_argument(
         '-B', '--board', metavar='BOARD', default='sandbox',
         help='Board to build/test (default: sandbox)')
     test.add_argument(

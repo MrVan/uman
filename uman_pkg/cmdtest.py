@@ -909,6 +909,10 @@ def run_gdb(cmd, args):
         '-iex', 'handle SIGUSR2 nostop noprint pass',
         '-ex', f'run {run_args}',
     ]
+    for extra in args.gdb_cmd:
+        gdb_cmd.extend(['-ex', extra])
+    if args.bt:
+        gdb_cmd.extend(['-ex', 'bt', '-ex', 'quit'])
 
     if args.dry_run:
         tout.notice(shlex.join(gdb_cmd))
@@ -940,7 +944,7 @@ def run_tests(sandbox, specs, args, col):
                        malloc_dump=args.malloc_dump,
                        leak_check=args.leak_check)
 
-    if args.gdb:
+    if args.gdb or args.bt or args.gdb_cmd:
         return run_gdb(cmd, args)
 
     if args.dry_run:

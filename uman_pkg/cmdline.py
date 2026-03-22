@@ -395,8 +395,14 @@ def add_test_subparser(subparsers):
         '-b', '--build', action='store_true',
         help='Build before running tests')
     test.add_argument(
+        '--bt', action='store_true',
+        help='Show backtrace on crash and exit (implies -g)')
+    test.add_argument(
         '-g', '--gdb', action='store_true',
         help='Run sandbox under gdb-multiarch')
+    test.add_argument(
+        '--gdb-cmd', metavar='CMD', action='append', default=[],
+        help='GDB command to run after the test (repeatable; implies -g)')
     test.add_argument(
         '-B', '--board', metavar='BOARD', default='sandbox',
         help='Board to build/test (default: sandbox)')

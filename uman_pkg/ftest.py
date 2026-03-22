@@ -6041,6 +6041,57 @@ Section Headers:
         self.assertIn('gdb-multiarch', output)
         self.assertIn('/sb', output)
 
+    def test_run_tests_gdb_bt(self):
+        """Test run_tests with --bt adds backtrace and quit commands"""
+        cap = []
+
+        def mock_run(cmd, **kwargs):
+            cap.append((cmd, kwargs))
+            return mock.MagicMock(returncode=0)
+
+        args = cmdline.parse_args(['test', '--bt', 'dm'])
+        col = terminal.Color()
+        with mock.patch.object(cmdtest, 'has_emit_result',
+                               return_value=True):
+            with mock.patch.object(cmdtest, 'has_no_flat',
+                                   return_value=True):
+                with mock.patch.object(cmdtest, 'ensure_dm_init_files',
+                                       return_value=True):
+                    with mock.patch('subprocess.run', mock_run):
+                        with terminal.capture():
+                            result = cmdtest.run_tests(
+                                '/sb', [('dm', None)], args, col)
+        self.assertEqual(0, result)
+        cmd = cap[0][0]
+        self.assertEqual('gdb-multiarch', cmd[0])
+        self.assertEqual(['-ex', 'bt', '-ex', 'quit'], cmd[-4:])
+
+    def test_run_tests_gdb_cmd(self):
+        """Test run_tests with --gdb-cmd adds extra gdb commands"""
+        cap = []
+
+        def mock_run(cmd, **kwargs):
+            cap.append((cmd, kwargs))
+            return mock.MagicMock(returncode=0)
+
+        args = cmdline.parse_args(['test', '--gdb-cmd', 'info reg',
+                                   '--gdb-cmd', 'bt', 'dm'])
+        col = terminal.Color()
+        with mock.patch.object(cmdtest, 'has_emit_result',
+                               return_value=True):
+            with mock.patch.object(cmdtest, 'has_no_flat',
+                                   return_value=True):
+                with mock.patch.object(cmdtest, 'ensure_dm_init_files',
+                                       return_value=True):
+                    with mock.patch('subprocess.run', mock_run):
+                        with terminal.capture():
+                            result = cmdtest.run_tests(
+                                '/sb', [('dm', None)], args, col)
+        self.assertEqual(0, result)
+        cmd = cap[0][0]
+        self.assertEqual('gdb-multiarch', cmd[0])
+        self.assertEqual(['-ex', 'info reg', '-ex', 'bt'], cmd[-4:])
+
 
 class TestPytestCTest(TestBase):
     """Tests for the pytest -C (C test) functionality"""

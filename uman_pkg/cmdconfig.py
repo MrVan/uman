@@ -54,7 +54,7 @@ def do_find(args):
         tout.error('Board is required: use -B BOARD or set $b')
         return 1
 
-    build_dir = args.build_dir or build_mod.get_dir(board)
+    build_dir = args.output_dir or build_mod.get_dir(board)
     binary = os.path.join(build_dir, 'u-boot')
     if not os.path.exists(binary):
         tout.error(f'Binary not found: {binary}')
@@ -98,7 +98,7 @@ def do_grep(args):
         tout.error('Board is required: use -B BOARD or set $b')
         return 1
 
-    config_path = get_config_path(board, args.build_dir)
+    config_path = get_config_path(board, args.output_dir)
     if not os.path.exists(config_path):
         tout.error(f'Config file not found: {config_path}')
         tout.error(f'Build the board first: um b {board}')
@@ -142,7 +142,7 @@ def do_sync(args, use_meld=False):
         tout.error('Not in a U-Boot tree and $USRC not set')
         return 1
 
-    build_dir = args.build_dir or build_mod.get_dir(board)
+    build_dir = args.output_dir or build_mod.get_dir(board)
     defconfig_path = os.path.join(uboot_dir, 'configs', f'{board}_defconfig')
 
     # Change to U-Boot directory for make
@@ -204,6 +204,20 @@ def run(args):
     Returns:
         int: Exit code
     """
+    if args.build:
+        board = args.board or os.environ.get('b')
+        if not board:
+            tout.error('Board is required: use -B BOARD or set $b')
+            return 1
+        if not build_mod.build_board(
+                board, args.dry_run, lto=args.lto,
+                adjust_cfg=args.adjust_cfg,
+                force_reconfig=args.force_reconfig, fresh=args.fresh,
+                jobs=args.jobs, trace=args.trace,
+                trace_early=not args.no_trace_early,
+                output_dir=args.output_dir):
+            return 1
+
     if args.find:
         return do_find(args)
 

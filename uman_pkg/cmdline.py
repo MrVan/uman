@@ -224,18 +224,22 @@ def add_test_opts(parser, board_help=None, board_default=None):
     add_leak_opts(parser)
 
 
-def add_build_opts(parser):
+def add_build_opts(parser, skip_short=None):
     """Add common build options to a parser
 
     Args:
         parser: Argument parser to add options to
+        skip_short (set or None): Short flags to omit (e.g. {'-f'}) when
+            they conflict with other options on the same subparser
     """
+    skip = skip_short or set()
     group = parser.add_argument_group('build options')
     group.add_argument(
         '-a', '--adjust-cfg', action='append', metavar='CFG', dest='adjust_cfg',
         help='Adjust Kconfig setting (use with -b; can use multiple times)')
+    flags = ['-f', '--force-reconfig'] if '-f' not in skip else ['--force-reconfig']
     group.add_argument(
-        '-f', '--force-reconfig', action='store_true',
+        *flags, action='store_true',
         help='Force reconfiguration (use with -b)')
     group.add_argument(
         '-F', '--fresh', action='store_true',
@@ -473,6 +477,9 @@ def add_config_subparser(subparsers):
         'config', aliases=['cfg'],
         help='Examine U-Boot configuration')
     cfg.add_argument(
+        '-b', '--build', action='store_true',
+        help='Build before running the config action')
+    cfg.add_argument(
         '-B', '--board', metavar='BOARD',
         help='Board name (required; or set $b)')
     cfg.add_argument(
@@ -487,9 +494,7 @@ def add_config_subparser(subparsers):
     cfg.add_argument(
         '-s', '--sync', action='store_true',
         help='Resync defconfig from .config (build cfg, savedefconfig, copy)')
-    cfg.add_argument(
-        '--build-dir', metavar='DIR',
-        help='Override build directory (default: /tmp/b/BOARD)')
+    add_build_opts(cfg, skip_short={'-f'})
     return cfg
 
 

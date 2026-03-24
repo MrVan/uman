@@ -912,12 +912,14 @@ for interactive comparison instead of copying.
 
 **Options**:
 
+- ``-b, --build``: Build before running the config action
 - ``-B, --board BOARD``: Board name (required; or set ``$b``)
 - ``-f, --find FUNC``: Find function in binary and show source file:line
 - ``-g, --grep PATTERN``: Grep .config for PATTERN (regex, case-insensitive)
 - ``-m, --meld``: Compare defconfig with meld
 - ``-s, --sync``: Resync defconfig from .config
-- ``--build-dir DIR``: Override build directory
+- Plus common build options (``-a``, ``--force-reconfig``, ``-F``, ``-j``,
+  ``-L``, ``-o``, ``-T``, ``--no-trace-early``); use with ``-b``
 
 Build Subcommand
 ----------------

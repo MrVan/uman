@@ -864,7 +864,7 @@ CONFIG_DM_TEST=y
     def test_config_grep(self):
         """Test config grep finds matches"""
         args = cmdline.parse_args(['config', '-B', 'sandbox', '-g', 'VIDEO',
-                                   '--build-dir', self.build_dir])
+                                   '-o', self.build_dir])
         with terminal.capture() as (out, _):
             ret = cmdconfig.run(args)
         self.assertEqual(0, ret)
@@ -874,7 +874,7 @@ CONFIG_DM_TEST=y
     def test_config_grep_case_insensitive(self):
         """Test config grep is case-insensitive"""
         args = cmdline.parse_args(['config', '-B', 'sandbox', '-g', 'video',
-                                   '--build-dir', self.build_dir])
+                                   '-o', self.build_dir])
         with terminal.capture() as (out, _):
             ret = cmdconfig.run(args)
         self.assertEqual(0, ret)
@@ -884,7 +884,7 @@ CONFIG_DM_TEST=y
         """Test config grep with no matches"""
         args = cmdline.parse_args(
             ['config', '-B', 'sandbox', '-g', 'NONEXISTENT',
-             '--build-dir', self.build_dir])
+             '-o', self.build_dir])
         with terminal.capture() as (out, _):
             ret = cmdconfig.run(args)
         self.assertEqual(0, ret)
@@ -914,7 +914,7 @@ CONFIG_DM_TEST=y
     def test_config_missing_config_file(self):
         """Test config fails when .config not found"""
         args = cmdline.parse_args(['config', '-B', 'sandbox', '-g', 'VIDEO',
-                                   '--build-dir', '/nonexistent/path'])
+                                   '-o', '/nonexistent/path'])
         with terminal.capture() as (_, err):
             ret = cmdconfig.run(args)
         self.assertEqual(1, ret)
@@ -936,7 +936,7 @@ CONFIG_DM_TEST=y
             return command.CommandResult(return_code=0)
 
         args = cmdline.parse_args(['config', '-B', 'sandbox', '-s',
-                                   '--build-dir', self.build_dir])
+                                   '-o', self.build_dir])
         # Create defconfig in build dir for copy
         with open(os.path.join(self.build_dir, 'defconfig'), 'w',
                   encoding='utf-8') as outf:
@@ -975,7 +975,7 @@ CONFIG_DM_TEST=y
             return command.CommandResult(return_code=0)
 
         args = cmdline.parse_args(['config', '-B', 'sandbox', '-m',
-                                   '--build-dir', self.build_dir])
+                                   '-o', self.build_dir])
         # Create defconfig in build dir
         with open(os.path.join(self.build_dir, 'defconfig'), 'w',
                   encoding='utf-8') as outf:
@@ -1017,8 +1017,7 @@ CONFIG_DM_TEST=y
                                          stdout=addr2line_output)
 
         args = cmdline.parse_args(['config', '-B', 'sandbox', '-f',
-                                   'do_version', '--build-dir',
-                                   self.build_dir])
+                                   'do_version', '-o', self.build_dir])
         with mock.patch.object(command, 'run_one', mock_run):
             with terminal.capture() as (out, err):
                 ret = cmdconfig.do_find(args)
@@ -1040,8 +1039,7 @@ CONFIG_DM_TEST=y
             return command.CommandResult(return_code=0, stdout=nm_output)
 
         args = cmdline.parse_args(['config', '-B', 'sandbox', '-f',
-                                   'nonexistent', '--build-dir',
-                                   self.build_dir])
+                                   'nonexistent', '-o', self.build_dir])
         with mock.patch.object(command, 'run_one', mock_run):
             with terminal.capture() as (out, err):
                 ret = cmdconfig.do_find(args)
@@ -1052,8 +1050,7 @@ CONFIG_DM_TEST=y
     def test_find_function_no_binary(self):
         """Test finding a function when binary does not exist"""
         args = cmdline.parse_args(['config', '-B', 'sandbox', '-f',
-                                   'do_version', '--build-dir',
-                                   self.build_dir])
+                                   'do_version', '-o', self.build_dir])
         # Remove the build dir contents (no u-boot binary)
         with terminal.capture() as (out, err):
             ret = cmdconfig.do_find(args)

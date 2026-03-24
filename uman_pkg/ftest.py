@@ -1000,11 +1000,18 @@ CONFIG_DM_TEST=y
 
     def test_find_function(self):
         """Test finding a function in the binary"""
+        # Create a source tree with cmd/version.c so prefix stripping works
+        src_dir = os.path.join(self.test_dir, 'src')
+        os.makedirs(os.path.join(src_dir, 'cmd'))
+        with open(os.path.join(src_dir, 'cmd', 'version.c'), 'w',
+                  encoding='utf-8') as outf:
+            outf.write('')
+
         nm_output = ('0000000000073fb2 t do_version\n'
                      '0000000000073fc0 T do_version_cmd\n'
                      '00000000000886c5 t do_mem_md\n')
-        addr2line_output = ('cmd/version.c:18\n'
-                            'cmd/version.c:30\n')
+        addr2line_output = ('/build/env/cmd/version.c:18\n'
+                            '/build/env/cmd/version.c:30\n')
         binary = os.path.join(self.build_dir, 'u-boot')
         with open(binary, 'w', encoding='utf-8') as outf:
             outf.write('')
@@ -1019,8 +1026,10 @@ CONFIG_DM_TEST=y
         args = cmdline.parse_args(['config', '-B', 'sandbox', '-f',
                                    'do_version', '-o', self.build_dir])
         with mock.patch.object(command, 'run_one', mock_run):
-            with terminal.capture() as (out, err):
-                ret = cmdconfig.do_find(args)
+            with mock.patch.object(cmdconfig, 'get_uboot_dir',
+                                   return_value=src_dir):
+                with terminal.capture() as (out, err):
+                    ret = cmdconfig.do_find(args)
 
         self.assertEqual(0, ret)
         self.assertEqual('do_version: cmd/version.c:18\n'

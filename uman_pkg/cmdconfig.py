@@ -37,6 +37,36 @@ def get_config_path(board, build_dir=None):
     return os.path.join(build_dir, '.config')
 
 
+def strip_src_prefix(loc, src_dir):
+    """Strip the source-tree prefix from an addr2line location
+
+    The binary may have been built in a different directory (e.g. a
+    container), so the DWARF paths won't match the local source tree.
+    Walk the path components to find the longest relative suffix that
+    exists as a file in src_dir.
+
+    Args:
+        loc (str): Location string from addr2line (e.g.
+            '/home/ubuntu/project/cmd/version.c:18')
+        src_dir (str or None): Local source directory, or None
+
+    Returns:
+        str: Relative path if found, otherwise the original loc
+    """
+    if not src_dir or ':' not in loc:
+        return loc
+
+    # Split off the :line suffix
+    path, sep, line = loc.rpartition(':')
+    # Try progressively shorter prefixes
+    parts = path.split('/')
+    for i in range(1, len(parts)):
+        rel = '/'.join(parts[i:])
+        if os.path.exists(os.path.join(src_dir, rel)):
+            return f'{rel}{sep}{line}'
+    return loc
+
+
 def do_find(args):
     """Find a function in the binary and show its source file and line
 
@@ -77,9 +107,10 @@ def do_find(args):
     addrs = [addr for addr, _ in matches]
     result = command.run_one('addr2line', '-e', binary, *addrs,
                              capture=True)
+    src_dir = get_uboot_dir()
     lines = result.stdout.strip().splitlines()
     for (_, name), loc in zip(matches, lines):
-        print(f'{name}: {loc}')
+        print(f'{name}: {strip_src_prefix(loc, src_dir)}')
 
     return 0
 

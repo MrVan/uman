@@ -890,6 +890,10 @@ Config Subcommand
 The ``config`` command (alias ``cfg``) provides tools for examining and
 modifying U-Boot configuration::
 
+    # Find a function's source location
+    uman config -B sandbox -f do_version
+    um cfg -f do_mem
+
     # Grep .config for a pattern (case-insensitive regex)
     uman config -B sandbox -g VIDEO
     um cfg -g DM_TEST
@@ -909,6 +913,7 @@ for interactive comparison instead of copying.
 **Options**:
 
 - ``-B, --board BOARD``: Board name (required; or set ``$b``)
+- ``-f, --find FUNC``: Find function in binary and show source file:line
 - ``-g, --grep PATTERN``: Grep .config for PATTERN (regex, case-insensitive)
 - ``-m, --meld``: Compare defconfig with meld
 - ``-s, --sync``: Resync defconfig from .config

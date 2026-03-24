@@ -998,6 +998,69 @@ CONFIG_DM_TEST=y
         self.assertIn('savedefconfig', cap[1])
         self.assertEqual('meld', cap[2][0])
 
+    def test_find_function(self):
+        """Test finding a function in the binary"""
+        nm_output = ('0000000000073fb2 t do_version\n'
+                     '0000000000073fc0 T do_version_cmd\n'
+                     '00000000000886c5 t do_mem_md\n')
+        addr2line_output = ('cmd/version.c:18\n'
+                            'cmd/version.c:30\n')
+        binary = os.path.join(self.build_dir, 'u-boot')
+        with open(binary, 'w', encoding='utf-8') as outf:
+            outf.write('')
+
+        def mock_run(*cmd_args, **kwargs):
+            if cmd_args[0] == 'nm':
+                return command.CommandResult(return_code=0,
+                                             stdout=nm_output)
+            return command.CommandResult(return_code=0,
+                                         stdout=addr2line_output)
+
+        args = cmdline.parse_args(['config', '-B', 'sandbox', '-f',
+                                   'do_version', '--build-dir',
+                                   self.build_dir])
+        with mock.patch.object(command, 'run_one', mock_run):
+            with terminal.capture() as (out, err):
+                ret = cmdconfig.do_find(args)
+
+        self.assertEqual(0, ret)
+        self.assertEqual('do_version: cmd/version.c:18\n'
+                         'do_version_cmd: cmd/version.c:30\n',
+                         out.getvalue())
+        self.assertFalse(err.getvalue())
+
+    def test_find_function_no_match(self):
+        """Test finding a function with no matches"""
+        nm_output = '0000000000073fb2 t do_version\n'
+        binary = os.path.join(self.build_dir, 'u-boot')
+        with open(binary, 'w', encoding='utf-8') as outf:
+            outf.write('')
+
+        def mock_run(*cmd_args, **kwargs):
+            return command.CommandResult(return_code=0, stdout=nm_output)
+
+        args = cmdline.parse_args(['config', '-B', 'sandbox', '-f',
+                                   'nonexistent', '--build-dir',
+                                   self.build_dir])
+        with mock.patch.object(command, 'run_one', mock_run):
+            with terminal.capture() as (out, err):
+                ret = cmdconfig.do_find(args)
+
+        self.assertEqual(1, ret)
+        self.assertFalse(out.getvalue())
+
+    def test_find_function_no_binary(self):
+        """Test finding a function when binary does not exist"""
+        args = cmdline.parse_args(['config', '-B', 'sandbox', '-f',
+                                   'do_version', '--build-dir',
+                                   self.build_dir])
+        # Remove the build dir contents (no u-boot binary)
+        with terminal.capture() as (out, err):
+            ret = cmdconfig.do_find(args)
+
+        self.assertEqual(1, ret)
+        self.assertFalse(out.getvalue())
+
 
 class TestGitSubcommand(TestBase):
     """Test git subcommand functionality"""

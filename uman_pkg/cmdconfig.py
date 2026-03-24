@@ -13,6 +13,7 @@ import re
 import shutil
 
 # pylint: disable=import-error
+from u_boot_pylib import command
 from u_boot_pylib import tout
 
 from uman_pkg import build as build_mod
@@ -34,6 +35,53 @@ def get_config_path(board, build_dir=None):
         base_dir = settings.get('build_dir', '/tmp/b')
         build_dir = os.path.join(base_dir, board)
     return os.path.join(build_dir, '.config')
+
+
+def do_find(args):
+    """Find a function in the binary and show its source file and line
+
+    Uses nm to look up function symbols matching the pattern, then
+    addr2line to resolve each to a source location.
+
+    Args:
+        args (argparse.Namespace): Arguments from cmdline
+
+    Returns:
+        int: Exit code (0 for success, non-zero for failure)
+    """
+    board = args.board or os.environ.get('b')
+    if not board:
+        tout.error('Board is required: use -B BOARD or set $b')
+        return 1
+
+    build_dir = args.build_dir or build_mod.get_dir(board)
+    binary = os.path.join(build_dir, 'u-boot')
+    if not os.path.exists(binary):
+        tout.error(f'Binary not found: {binary}')
+        tout.error(f'Build the board first: um b {board}')
+        return 1
+
+    pattern = args.find
+    result = command.run_one('nm', binary, capture=True)
+    matches = []
+    for line in result.stdout.splitlines():
+        parts = line.split()
+        if len(parts) == 3 and parts[1] in 'TtWw':
+            if pattern in parts[2]:
+                matches.append((parts[0], parts[2]))
+
+    if not matches:
+        tout.error(f'No functions matching: {pattern}')
+        return 1
+
+    addrs = [addr for addr, _ in matches]
+    result = command.run_one('addr2line', '-e', binary, *addrs,
+                             capture=True)
+    lines = result.stdout.strip().splitlines()
+    for (_, name), loc in zip(matches, lines):
+        print(f'{name}: {loc}')
+
+    return 0
 
 
 def do_grep(args):
@@ -156,6 +204,9 @@ def run(args):
     Returns:
         int: Exit code
     """
+    if args.find:
+        return do_find(args)
+
     if args.grep:
         return do_grep(args)
 
@@ -165,5 +216,5 @@ def run(args):
     if args.sync:
         return do_sync(args)
 
-    tout.error('No action specified (use -g PATTERN, -m, or -s)')
+    tout.error('No action specified (use -f FUNC, -g PATTERN, -m, or -s)')
     return 1

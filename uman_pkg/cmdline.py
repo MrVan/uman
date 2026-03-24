@@ -476,6 +476,9 @@ def add_config_subparser(subparsers):
         '-B', '--board', metavar='BOARD',
         help='Board name (required; or set $b)')
     cfg.add_argument(
+        '-f', '--find', metavar='FUNC',
+        help='Find function in binary and show source file:line')
+    cfg.add_argument(
         '-g', '--grep', metavar='PATTERN',
         help='Grep .config for PATTERN (regex, case-insensitive)')
     cfg.add_argument(

@@ -118,6 +118,7 @@ def make_args(**kwargs):
         'all': False,
         'bisect': None,
         'board': None,
+        'bt': False,
         'build': False,
         'build_dir': None,
         'c_test': False,
@@ -133,9 +134,11 @@ def make_args(**kwargs):
         'flattree_too': False,
         'fresh': False,
         'gdb': False,
+        'gdb_cmd': [],
         'gdb_phase': None,
         'gdbserver': None,
         'jobs': None,
+        'leak_check': False,
         'list_boards': False,
         'lto': False,
         'malloc_dump': None,
@@ -3530,6 +3533,47 @@ qemu_binary="nonexistent-qemu-xyz"
         self.assertIn('/tmp/b/sandbox/u-boot', output)
         self.assertIn('target remote localhost:1234', output)
         self.assertIn('handle SIGUSR2 nostop noprint pass', output)
+
+    def test_pytest_gdb_bt_dry_run(self):
+        """Test pytest --bt with dry-run adds bt and quit to gdb command"""
+        args = make_args(cmd='pytest', board='sandbox',
+                         gdb_phase='u-boot',
+                         gdb=True, bt=True, dry_run=True)
+
+        with terminal.capture() as (out, _):
+            res = control.run_command(args)
+
+        self.assertEqual(0, res)
+        output = out.getvalue()
+        self.assertIn('gdb-multiarch', output)
+        self.assertIn('-ex bt -ex quit', output)
+
+    def test_pytest_gdb_cmd_dry_run(self):
+        """Test pytest --gdb-cmd with dry-run adds extra gdb commands"""
+        args = make_args(cmd='pytest', board='sandbox',
+                         gdb_phase='u-boot',
+                         gdb=True, gdb_cmd=['info reg', 'bt'],
+                         dry_run=True)
+
+        with terminal.capture() as (out, _):
+            res = control.run_command(args)
+
+        self.assertEqual(0, res)
+        output = out.getvalue()
+        self.assertIn('gdb-multiarch', output)
+        self.assertIn('-ex info reg -ex bt', output)
+
+    def test_pytest_bt_implies_gdb(self):
+        """Test pytest --bt implies -G"""
+        args = make_args(cmd='pytest', board='sandbox',
+                         bt=True, dry_run=True)
+
+        with terminal.capture() as (out, _):
+            res = control.run_command(args)
+
+        self.assertEqual(0, res)
+        output = out.getvalue()
+        self.assertIn('gdb-multiarch', output)
 
     def test_get_uboot_dir_current(self):
         """Test get_uboot_dir finds U-Boot in current directory"""

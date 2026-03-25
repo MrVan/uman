@@ -702,7 +702,9 @@ hooks to PATH.
 - ``--find PATTERN``: Find tests matching PATTERN and show full IDs
 - ``--force-reconfig``: Force reconfiguration (use with -b)
 - ``--fresh``: Delete build dir before building (use with -b)
+- ``--bt``: Show backtrace on crash and exit (implies -G)
 - ``-g``: Run sandbox under gdbserver at localhost:1234
+- ``--gdb-cmd CMD``: GDB command to run after connecting (repeatable; implies -G)
 - ``--gdb-phase PHASE``: Debug a specific phase (spl, tpl, vpl)
 - ``-G, --gdb``: Launch gdb-multiarch and connect to an existing gdbserver
 - ``-j, --jobs JOBS``: Number of parallel jobs (use with -b)

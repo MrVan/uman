@@ -1141,6 +1141,10 @@ def run_with_gdb(args):
         '-iex', 'handle SIGUSR2 nostop noprint pass',  # Used by sandbox coroutines
         '-ex', f'target remote {channel}',
     ]
+    for extra in args.gdb_cmd:
+        gdb_cmd.extend(['-ex', extra])
+    if args.bt:
+        gdb_cmd.extend(['-ex', 'bt', '-ex', 'quit'])
 
     if args.dry_run:
         print(' '.join(gdb_cmd))
@@ -1492,6 +1496,10 @@ def do_pytest(args):  # pylint: disable=too-many-return-statements,too-many-bran
         tout.error(f'QEMU binary not found: {qemu_binary}')
         tout.notice('Try: uman setup qemu')
         return 1
+
+    # Handle --bt / --gdb-cmd implying -G
+    if (args.bt or args.gdb_cmd) and not args.gdb:
+        args.gdb = True
 
     # Handle -G: set gdb_phase if not already set
     if args.gdb and not args.gdb_phase:

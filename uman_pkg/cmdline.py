@@ -284,8 +284,15 @@ def add_pytest_subparser(subparsers):
         '--find', metavar='PATTERN',
         help='Find tests matching PATTERN and show full IDs')
     pyt.add_argument(
+        '--bt', action='store_true',
+        help='Show backtrace on crash and exit (implies -G)')
+    pyt.add_argument(
         '-G', '--gdb', action='store_true',
         help='Launch gdb client (connect to existing gdbserver from -g)')
+    pyt.add_argument(
+        '--gdb-cmd', metavar='CMD', action='append', default=[],
+        help='GDB command to run after connecting (e.g. --gdb-cmd bt); '
+        'repeatable, implies -G')
     pyt.add_argument(
         '-l', '--list', action='store_true', dest='list_boards',
         help='List available QEMU boards')

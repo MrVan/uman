@@ -3030,8 +3030,10 @@ class TestUmanCI(TestBase):
         args = make_args(dry_run=True)
         with mock.patch.object(control, 'detect_upstream_remote',
                                return_value='us'):
-            with terminal.capture() as (out, _):
-                res = control.do_ci(args)
+            with mock.patch.object(control, 'get_remote_map',
+                                   return_value={}):
+                with terminal.capture() as (out, _):
+                    res = control.do_ci(args)
         self.assertEqual(0, res)
         output = out.getvalue()
         self.assertIn('us master', output)

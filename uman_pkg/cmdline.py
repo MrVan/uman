@@ -238,6 +238,9 @@ def add_build_opts(parser, skip_short=None):
     skip = skip_short or set()
     group = parser.add_argument_group('build options')
     group.add_argument(
+        '-b', '--build', action='store_true',
+        help='Build before running')
+    group.add_argument(
         '-a', '--adjust-cfg', action='append', metavar='CFG', dest='adjust_cfg',
         help='Adjust Kconfig setting (use with -b; can use multiple times)')
     flags = ['-f', '--force-reconfig'] if '-f' not in skip else ['--force-reconfig']
@@ -271,9 +274,6 @@ def add_pytest_subparser(subparsers):
         help='Run pytest tests for U-Boot')
     add_test_opts(pyt,
                   board_help='Board name to test (required; use -l to list QEMU boards)')
-    pyt.add_argument(
-        '-b', '--build', action='store_true',
-        help='Build U-Boot before running tests')
     pyt.add_argument(
         '-c', '--show-cmd', action='store_true',
         help='Show QEMU command line without running tests')
@@ -406,9 +406,6 @@ def add_test_subparser(subparsers):
         'tests', nargs='*', metavar='TEST',
         help='Test name(s) to run (e.g. "dm" or "env")')
     test.add_argument(
-        '-b', '--build', action='store_true',
-        help='Build before running tests')
-    test.add_argument(
         '--bt', action='store_true',
         help='Show backtrace on crash and exit (implies -g)')
     test.add_argument(
@@ -486,9 +483,6 @@ def add_config_subparser(subparsers):
     cfg = subparsers.add_parser(
         'config', aliases=['cfg'],
         help='Examine U-Boot configuration')
-    cfg.add_argument(
-        '-b', '--build', action='store_true',
-        help='Build before running the config action')
     cfg.add_argument(
         '-B', '--board', metavar='BOARD',
         help='Board name (required; or set $b)')

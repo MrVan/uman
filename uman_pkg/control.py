@@ -122,8 +122,92 @@ def build_desc(desc, tags):
     return tags
 
 
+def detect_upstream_remote():
+    """Detect the CI remote from the branch's upstream
+
+    First checks the branch's tracking ref (e.g. 'ci/master'). If that
+    is a local branch, walks the commit history looking for the first
+    remote tracking ref on a well-known branch (next, master, main).
+
+    Returns:
+        str or None: Remote name, or None if not detectable
+    """
+    # Try the tracking ref first
+    try:
+        upstream = command.output_one_line(
+            'git', 'rev-parse', '--abbrev-ref', '@{u}',
+            raise_on_error=False)
+    except (command.CommandExc, ValueError):
+        upstream = None
+    if upstream and '/' in upstream:
+        return upstream.split('/')[0]
+
+    # Walk commit history for the nearest remote/next or remote/master
+    import re  # pylint: disable=import-outside-toplevel
+
+    try:
+        result = command.run_one(
+            'git', 'log', '--format=%D',
+            '--decorate-refs=refs/remotes/', '-50', capture=True,
+            raise_on_error=False)
+    except command.CommandExc:
+        return None
+    if not result or not result.stdout:
+        return None
+    for line in result.stdout.splitlines():
+        match = re.search(r'(\w+)/(next|master|main)\b', line)
+        if match:
+            return match.group(1)
+    return None
+
+
+def get_remote_map():
+    """Parse the ci_remote_map setting into a dictionary
+
+    The setting is a comma-separated list of from:to pairs, e.g.
+    'us:dm,ub:ci'.
+
+    Returns:
+        dict: Mapping of upstream remote to push remote
+    """
+    raw = settings.get('ci_remote_map')
+    if not raw:
+        return {}
+    result = {}
+    for pair in raw.split(','):
+        pair = pair.strip()
+        if ':' in pair:
+            key, val = pair.split(':', 1)
+            result[key.strip()] = val.strip()
+    return result
+
+
+def get_ci_remote(args):
+    """Get the CI remote name
+
+    Uses -r/--remote if given, then the ci_remote setting, then
+    auto-detects from the branch's upstream tracking ref (applying the
+    ci_remote_map if set), falling back to 'ci'.
+
+    Args:
+        args (argparse.Namespace): Command line arguments
+
+    Returns:
+        str: Remote name
+    """
+    if getattr(args, 'remote', None):
+        return args.remote
+    if settings.get('ci_remote'):
+        return settings.get('ci_remote')
+    detected = detect_upstream_remote()
+    if detected:
+        remote_map = get_remote_map()
+        return remote_map.get(detected, detected)
+    return 'ci'
+
+
 def git_push_branch(branch, args, ci_vars=None, upstream=False, dest=None):
-    """Push a branch to the 'ci' remote with optional CI variables
+    """Push a branch to the CI remote with optional CI variables
 
     Args:
         branch (str): Branch name to push
@@ -137,6 +221,7 @@ def git_push_branch(branch, args, ci_vars=None, upstream=False, dest=None):
     Returns:
         CommandResult or None: Result of push command
     """
+    remote = get_ci_remote(args)
     push_cmd = ['git', 'push']
 
     if args.force:
@@ -153,13 +238,13 @@ def git_push_branch(branch, args, ci_vars=None, upstream=False, dest=None):
     # args.dest, or current branch
     dest_branch = dest or args.dest or branch
 
-    # Always push to 'ci' remote, but to the specified destination branch
+    # Push to the CI remote
     if dest_branch == branch:
         # Same branch name, simple push
-        push_cmd.extend(['ci', branch])
+        push_cmd.extend([remote, branch])
     else:
         # Different branch name, use refspec
-        push_cmd.extend(['ci', f'{branch}:{dest_branch}'])
+        push_cmd.extend([remote, f'{branch}:{dest_branch}'])
 
     return exec_cmd(push_cmd, args.dry_run, capture=False)
 
@@ -442,7 +527,7 @@ def do_merge_request(args):  # pylint: disable=too-many-locals
         return 1
 
     # Get remote URL and parse it using pickman's functions
-    remote_url = gitlab_api.get_remote_url('ci')
+    remote_url = gitlab_api.get_remote_url(get_ci_remote(args))
     host, proj = gitlab_api.parse_url(remote_url)
     if not host or not proj:
         tout.error(f'Cannot parse remote URL: {remote_url}')

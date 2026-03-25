@@ -20,6 +20,13 @@ DEFAULT_CONFIG = '''# uman config file
 # Build directory for U-Boot out-of-tree builds
 build_dir = /tmp/b
 
+# Git remote for CI pushes (default: ci)
+# ci_remote = ci
+
+# Map upstream remotes to push remotes (comma-separated from:to pairs)
+# e.g. if upstream is 'us' but you push to 'dm': ci_remote_map = us:dm
+# ci_remote_map = us:dm
+
 # Directory for firmware blobs (OpenSBI, etc.)
 blobs_dir = ~/dev/blobs
 

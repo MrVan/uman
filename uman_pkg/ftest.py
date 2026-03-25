@@ -150,6 +150,7 @@ def make_args(**kwargs):
         'pollute': None,
         'pytest': None,
         'quiet': False,
+        'remote': None,
         'setup_only': False,
         'show_cmd': False,
         'show_output': False,
@@ -2995,6 +2996,102 @@ class TestUmanCI(TestBase):
             '-o ci.variable=WORLD=0 -o ci.variable=SJG_LAB= ci master\n',
             out.getvalue())
 
+    def test_ci_custom_remote(self):
+        """Test CI command with -r uses the specified remote"""
+        self._create_git_repo()
+
+        args = make_args(dry_run=True, remote='upstream')
+        with terminal.capture() as (out, _):
+            res = control.do_ci(args)
+        self.assertEqual(0, res)
+        output = out.getvalue()
+        self.assertIn('upstream master', output)
+        self.assertNotIn(' ci ', output)
+
+    def test_ci_remote_from_settings(self):
+        """Test CI command uses ci_remote from settings"""
+        self._create_git_repo()
+
+        args = make_args(dry_run=True)
+        with mock.patch.object(settings, 'get',
+                               side_effect=lambda k, **kw:
+                               'origin' if k == 'ci_remote' else
+                               kw.get('fallback')):
+            with terminal.capture() as (out, _):
+                res = control.do_ci(args)
+        self.assertEqual(0, res)
+        output = out.getvalue()
+        self.assertIn('origin master', output)
+
+    def test_ci_remote_auto_detect(self):
+        """Test CI command auto-detects remote from upstream tracking ref"""
+        self._create_git_repo()
+
+        args = make_args(dry_run=True)
+        with mock.patch.object(control, 'detect_upstream_remote',
+                               return_value='us'):
+            with terminal.capture() as (out, _):
+                res = control.do_ci(args)
+        self.assertEqual(0, res)
+        output = out.getvalue()
+        self.assertIn('us master', output)
+
+    def test_detect_upstream_remote(self):
+        """Test detect_upstream_remote parses tracking ref"""
+        self._create_git_repo()
+
+        # No upstream set - should return None
+        result = control.detect_upstream_remote()
+        self.assertIsNone(result)
+
+    def test_detect_upstream_remote_from_history(self):
+        """Test detect_upstream_remote finds remote from commit history"""
+        log_output = ('el/loada-us, dm/loada-us\n'
+                      'us/next, us/WIP/23Mar2026-next\n')
+        result = command.CommandResult(return_code=0, stdout=log_output)
+
+        with mock.patch.object(command, 'output_one_line',
+                               side_effect=command.CommandExc('no upstream',
+                                                              None)):
+            with mock.patch.object(command, 'run_one',
+                                   return_value=result):
+                remote = control.detect_upstream_remote()
+        self.assertEqual('us', remote)
+
+    def test_ci_remote_map(self):
+        """Test CI remote mapping from upstream to push remote"""
+        self._create_git_repo()
+
+        args = make_args(dry_run=True)
+        with mock.patch.object(control, 'detect_upstream_remote',
+                               return_value='us'):
+            with mock.patch.object(settings, 'get',
+                                   side_effect=lambda k, **kw:
+                                   'us:dm' if k == 'ci_remote_map' else
+                                   kw.get('fallback')):
+                with terminal.capture() as (out, _):
+                    res = control.do_ci(args)
+        self.assertEqual(0, res)
+        output = out.getvalue()
+        self.assertIn('dm master', output)
+
+    def test_ci_remote_map_no_match(self):
+        """Test CI remote mapping with no matching entry"""
+        self._create_git_repo()
+
+        args = make_args(dry_run=True)
+        with mock.patch.object(control, 'detect_upstream_remote',
+                               return_value='us'):
+            with mock.patch.object(settings, 'get',
+                                   side_effect=lambda k, **kw:
+                                   'ub:ci' if k == 'ci_remote_map' else
+                                   kw.get('fallback')):
+                with terminal.capture() as (out, _):
+                    res = control.do_ci(args)
+        self.assertEqual(0, res)
+        output = out.getvalue()
+        self.assertIn('us master', output)
+
     def test_exec_cmd_dry_run(self):
         """Test exec_cmd in dry-run mode shows command"""
         with terminal.capture() as (out, err):
@@ -3022,6 +3119,8 @@ class TestUmanCI(TestBase):
             return command.CommandResult(stdout='', return_code=0)
 
         with mock.patch.object(control, 'exec_cmd', mock_exec):
+          with mock.patch.object(control, 'detect_upstream_remote',
+                                 return_value=None):
             # Test default destination (None means use current branch name)
             args = make_args(dry_run=False, dest=None)
             with terminal.capture():

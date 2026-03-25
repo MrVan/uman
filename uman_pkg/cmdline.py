@@ -152,6 +152,9 @@ def add_ci_subparser(subparsers):
                     help='Create merge request')
     ci.add_argument('-p', '--pytest', nargs='?', const='1', default=None,
                     help=pytest_help)
+    ci.add_argument('-r', '--remote', metavar='REMOTE', default=None,
+                    help='Git remote to push to (default: ci_remote setting '
+                    "or 'ci')")
     ci.add_argument('-s', '--suites', action='store_true',
                     help='Enable SUITES')
     ci.add_argument('-t', '--test-spec', metavar='SPEC',

@@ -130,6 +130,8 @@ Some simple examples::
 - ``-l, --sjg [BOARD]``: Set SJG_LAB (optionally specify board)
 - ``-m, --merge``: Create merge request using cover letter from patch series
 - ``-p, --pytest [BOARD]``: Enable PYTEST (optionally specify board name)
+- ``-r, --remote REMOTE``: Git remote to push to (default: ``ci_remote``
+  setting or ``ci``)
 - ``-s, --suites``: Enable SUITES
 - ``-t, --test-spec SPEC``: Override test specification (e.g. "not sleep",
   "test_ofplatdata")
@@ -1040,6 +1042,13 @@ Settings are stored in ``~/.uman`` (created on first run)::
     [DEFAULT]
     # Build directory for U-Boot out-of-tree builds
     build_dir = /tmp/b
+
+    # Git remote for CI pushes (default: ci); auto-detected from upstream
+    # ci_remote = ci
+
+    # Map upstream remotes to push remotes (comma-separated from:to pairs)
+    # e.g. if upstream is 'us' but you push to 'dm': ci_remote_map = us:dm
+    # ci_remote_map = us:dm
 
     # Directory for firmware blobs (OpenSBI, TF-A, etc.)
     blobs_dir = ~/dev/blobs

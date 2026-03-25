@@ -273,7 +273,7 @@ def add_pytest_subparser(subparsers):
         'pytest', aliases=ALIASES['pytest'],
         help='Run pytest tests for U-Boot')
     add_test_opts(pyt,
-                  board_help='Board name to test (required; use -l to list QEMU boards)')
+                  board_help='Board name to test (required; use -l to list boards)')
     pyt.add_argument(
         '-c', '--show-cmd', action='store_true',
         help='Show QEMU command line without running tests')
@@ -298,7 +298,7 @@ def add_pytest_subparser(subparsers):
         'repeatable, implies -G')
     pyt.add_argument(
         '-l', '--list', action='store_true', dest='list_boards',
-        help='List available QEMU boards')
+        help='List available QEMU and sandbox boards')
     pyt.add_argument(
         '-P', '--persist', action='store_true',
         help='Persist test artifacts (do not clean up after tests)')

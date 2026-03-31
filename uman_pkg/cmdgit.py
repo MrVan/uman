@@ -1531,8 +1531,10 @@ def run(args):
         return print_aliases()
 
     if not args.action:
-        tout.error('Action required (or use -a for aliases)')
-        return 1
+        print('Available actions:')
+        for action in GIT_ACTIONS:
+            print(f'  {action.short:5s} {action.long:20s} {action.name}')
+        return 0
 
     # Resolve alias to short name
     action = ACTION_ALIASES.get(args.action, args.action)

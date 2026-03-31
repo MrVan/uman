@@ -2195,6 +2195,42 @@ class TestGitSubcommand(TestBase):
         self.assertEqual(0, result.return_code)
         self.assertEqual(('rebase', '-i', 'HEAD~5'), cap[0])
 
+    def test_do_rf_with_hash(self):
+        """Test do_rf with a commit hash rebases from its parent"""
+        cap = []
+
+        def mock_git(*args, env=None, dry_run=None):
+            del env, dry_run
+            cap.append(args)
+            return mock.Mock(return_code=0, stdout='', stderr='')
+
+        args = cmdline.parse_args(['git', 'rf', 'abc1234'])
+        with mock.patch('uman_pkg.cmdgit.git', mock_git):
+            with mock.patch.object(cmdgit, 'has_unstaged_changes',
+                                   return_value=False):
+                result = cmdgit.do_rf(args)
+        self.assertEqual(0, result.return_code)
+        self.assertEqual(('rebase', '-i', 'abc1234~1'), cap[0])
+
+    def test_do_rp_with_hash(self):
+        """Test do_rp with a commit hash"""
+        cap_env = []
+
+        def mock_git(*args, env=None, dry_run=None):
+            del args, dry_run
+            cap_env.append(env)
+            return mock.Mock(return_code=0, stdout='', stderr='')
+
+        args = cmdline.parse_args(['git', 'rp', 'abc1234'])
+        with mock.patch('uman_pkg.cmdgit.git', mock_git):
+            with mock.patch.object(cmdgit, 'get_upstream',
+                                   return_value='origin/main'):
+                result = cmdgit.do_rp(args)
+        self.assertEqual(0, result.return_code)
+        editor = cap_env[0]['GIT_SEQUENCE_EDITOR']
+        self.assertIn('abc1234', editor)
+        self.assertIn('edit', editor)
+
     def test_do_rf_unstaged_changes(self):
         """Test do_rf fails with unstaged changes"""
         args = cmdline.parse_args(['git', 'rf'])
@@ -2211,7 +2247,7 @@ class TestGitSubcommand(TestBase):
         with terminal.capture() as (_, err):
             result = cmdgit.do_rp(args)
         self.assertEqual(1, result)
-        self.assertIn('Patch number required', err.getvalue())
+        self.assertIn('Patch number or commit hash required', err.getvalue())
 
 
 class TestGitRebase(TestBase, GitRepoMixin):

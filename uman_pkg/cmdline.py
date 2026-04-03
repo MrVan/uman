@@ -152,6 +152,9 @@ def add_ci_subparser(subparsers):
                     help='Create merge request')
     ci.add_argument('-p', '--pytest', nargs='?', const='1', default=None,
                     help=pytest_help)
+    ci.add_argument('-r', '--remote', metavar='REMOTE', default=None,
+                    help='Git remote to push to (default: ci_remote setting '
+                    "or 'ci')")
     ci.add_argument('-s', '--suites', action='store_true',
                     help='Enable SUITES')
     ci.add_argument('-t', '--test-spec', metavar='SPEC',
@@ -224,18 +227,25 @@ def add_test_opts(parser, board_help=None, board_default=None):
     add_leak_opts(parser)
 
 
-def add_build_opts(parser):
+def add_build_opts(parser, skip_short=None):
     """Add common build options to a parser
 
     Args:
         parser: Argument parser to add options to
+        skip_short (set or None): Short flags to omit (e.g. {'-f'}) when
+            they conflict with other options on the same subparser
     """
+    skip = skip_short or set()
     group = parser.add_argument_group('build options')
+    group.add_argument(
+        '-b', '--build', action='store_true',
+        help='Build before running')
     group.add_argument(
         '-a', '--adjust-cfg', action='append', metavar='CFG', dest='adjust_cfg',
         help='Adjust Kconfig setting (use with -b; can use multiple times)')
+    flags = ['-f', '--force-reconfig'] if '-f' not in skip else ['--force-reconfig']
     group.add_argument(
-        '-f', '--force-reconfig', action='store_true',
+        *flags, action='store_true',
         help='Force reconfiguration (use with -b)')
     group.add_argument(
         '-F', '--fresh', action='store_true',
@@ -263,10 +273,7 @@ def add_pytest_subparser(subparsers):
         'pytest', aliases=ALIASES['pytest'],
         help='Run pytest tests for U-Boot')
     add_test_opts(pyt,
-                  board_help='Board name to test (required; use -l to list QEMU boards)')
-    pyt.add_argument(
-        '-b', '--build', action='store_true',
-        help='Build U-Boot before running tests')
+                  board_help='Board name to test (required; use -l to list boards)')
     pyt.add_argument(
         '-c', '--show-cmd', action='store_true',
         help='Show QEMU command line without running tests')
@@ -280,11 +287,18 @@ def add_pytest_subparser(subparsers):
         '--find', metavar='PATTERN',
         help='Find tests matching PATTERN and show full IDs')
     pyt.add_argument(
+        '--bt', action='store_true',
+        help='Show backtrace on crash and exit (implies -G)')
+    pyt.add_argument(
         '-G', '--gdb', action='store_true',
         help='Launch gdb client (connect to existing gdbserver from -g)')
     pyt.add_argument(
+        '--gdb-cmd', metavar='CMD', action='append', default=[],
+        help='GDB command to run after connecting (e.g. --gdb-cmd bt); '
+        'repeatable, implies -G')
+    pyt.add_argument(
         '-l', '--list', action='store_true', dest='list_boards',
-        help='List available QEMU boards')
+        help='List available QEMU and sandbox boards')
     pyt.add_argument(
         '-P', '--persist', action='store_true',
         help='Persist test artifacts (do not clean up after tests)')
@@ -392,8 +406,14 @@ def add_test_subparser(subparsers):
         'tests', nargs='*', metavar='TEST',
         help='Test name(s) to run (e.g. "dm" or "env")')
     test.add_argument(
-        '-b', '--build', action='store_true',
-        help='Build before running tests')
+        '--bt', action='store_true',
+        help='Show backtrace on crash and exit (implies -g)')
+    test.add_argument(
+        '-g', '--gdb', action='store_true',
+        help='Run sandbox under gdb-multiarch')
+    test.add_argument(
+        '--gdb-cmd', metavar='CMD', action='append', default=[],
+        help='GDB command to run after the test (repeatable; implies -g)')
     test.add_argument(
         '-B', '--board', metavar='BOARD', default='sandbox',
         help='Board to build/test (default: sandbox)')
@@ -467,6 +487,9 @@ def add_config_subparser(subparsers):
         '-B', '--board', metavar='BOARD',
         help='Board name (required; or set $b)')
     cfg.add_argument(
+        '-f', '--find', metavar='FUNC',
+        help='Find function in binary and show source file:line')
+    cfg.add_argument(
         '-g', '--grep', metavar='PATTERN',
         help='Grep .config for PATTERN (regex, case-insensitive)')
     cfg.add_argument(
@@ -475,9 +498,7 @@ def add_config_subparser(subparsers):
     cfg.add_argument(
         '-s', '--sync', action='store_true',
         help='Resync defconfig from .config (build cfg, savedefconfig, copy)')
-    cfg.add_argument(
-        '--build-dir', metavar='DIR',
-        help='Override build directory (default: /tmp/b/BOARD)')
+    add_build_opts(cfg, skip_short={'-f'})
     return cfg
 
 

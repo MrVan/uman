@@ -130,6 +130,8 @@ Some simple examples::
 - ``-l, --sjg [BOARD]``: Set SJG_LAB (optionally specify board)
 - ``-m, --merge``: Create merge request using cover letter from patch series
 - ``-p, --pytest [BOARD]``: Enable PYTEST (optionally specify board name)
+- ``-r, --remote REMOTE``: Git remote to push to (default: ``ci_remote``
+  setting or ``ci``)
 - ``-s, --suites``: Enable SUITES
 - ``-t, --test-spec SPEC``: Override test specification (e.g. "not sleep",
   "test_ofplatdata")
@@ -702,7 +704,9 @@ hooks to PATH.
 - ``--find PATTERN``: Find tests matching PATTERN and show full IDs
 - ``--force-reconfig``: Force reconfiguration (use with -b)
 - ``--fresh``: Delete build dir before building (use with -b)
+- ``--bt``: Show backtrace on crash and exit (implies -G)
 - ``-g``: Run sandbox under gdbserver at localhost:1234
+- ``--gdb-cmd CMD``: GDB command to run after connecting (repeatable; implies -G)
 - ``--gdb-phase PHASE``: Debug a specific phase (spl, tpl, vpl)
 - ``-G, --gdb``: Launch gdb-multiarch and connect to an existing gdbserver
 - ``-j, --jobs JOBS``: Number of parallel jobs (use with -b)
@@ -863,7 +867,10 @@ without going through pytest. This is faster for quick iteration on C code.
 - ``-B, --board BOARD``: Board to build/test (default: sandbox)
 - ``-f, --force-reconfig``: Force reconfiguration (use with -b)
 - ``-F, --fresh``: Delete build dir before building (use with -b)
+- ``--bt``: Show backtrace on crash and exit (implies -g)
 - ``--flattree-too``: Run both live-tree and flat-tree tests (default: live-tree only)
+- ``-g, --gdb``: Run sandbox under gdb-multiarch
+- ``--gdb-cmd CMD``: GDB command to run after the test (repeatable; implies -g)
 - ``-j, --jobs JOBS``: Number of parallel jobs (use with -b)
 - ``-l, --list``: List available tests
 - ``-L, --lto``: Enable LTO when building (use with -b)
@@ -887,6 +894,10 @@ Config Subcommand
 The ``config`` command (alias ``cfg``) provides tools for examining and
 modifying U-Boot configuration::
 
+    # Find a function's source location
+    uman config -B sandbox -f do_version
+    um cfg -f do_mem
+
     # Grep .config for a pattern (case-insensitive regex)
     uman config -B sandbox -g VIDEO
     um cfg -g DM_TEST
@@ -905,11 +916,14 @@ for interactive comparison instead of copying.
 
 **Options**:
 
+- ``-b, --build``: Build before running the config action
 - ``-B, --board BOARD``: Board name (required; or set ``$b``)
+- ``-f, --find FUNC``: Find function in binary and show source file:line
 - ``-g, --grep PATTERN``: Grep .config for PATTERN (regex, case-insensitive)
 - ``-m, --meld``: Compare defconfig with meld
 - ``-s, --sync``: Resync defconfig from .config
-- ``--build-dir DIR``: Override build directory
+- Plus common build options (``-a``, ``--force-reconfig``, ``-F``, ``-j``,
+  ``-L``, ``-o``, ``-T``, ``--no-trace-early``); use with ``-b``
 
 Build Subcommand
 ----------------
@@ -1028,6 +1042,13 @@ Settings are stored in ``~/.uman`` (created on first run)::
     [DEFAULT]
     # Build directory for U-Boot out-of-tree builds
     build_dir = /tmp/b
+
+    # Git remote for CI pushes (default: ci); auto-detected from upstream
+    # ci_remote = ci
+
+    # Map upstream remotes to push remotes (comma-separated from:to pairs)
+    # e.g. if upstream is 'us' but you push to 'dm': ci_remote_map = us:dm
+    # ci_remote_map = us:dm
 
     # Directory for firmware blobs (OpenSBI, TF-A, etc.)
     blobs_dir = ~/dev/blobs

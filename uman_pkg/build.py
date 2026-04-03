@@ -171,7 +171,7 @@ def get_cmd(args, board, build_dir):
     Returns:
         list: Full buildman command including 'buildman' as first element
     """
-    return ['buildman'] + get_buildman_args(args, board, build_dir)
+    return [get_buildman()] + get_buildman_args(args, board, build_dir)
 
 
 def base_bm_args(board, build_dir, lto=True):
@@ -220,7 +220,7 @@ def get_buildman_args(args, board, build_dir):
 
 def build_board(board, dry_run=False, lto=False, adjust_cfg=None,
                 force_reconfig=False, fresh=False, jobs=None, trace=False,
-                trace_early=True, output_dir=None):
+                trace_early=True, output_dir=None, extra_env=None):
     """Build U-Boot for a board
 
     Args:
@@ -259,11 +259,16 @@ def build_board(board, dry_run=False, lto=False, adjust_cfg=None,
             bm_args.extend(['-a', cfg])
 
     env = None
+    if extra_env or trace:
+        env = os.environ.copy()
+        if extra_env:
+            env.update(extra_env)
     if trace:
         bm_args.extend(['-a', 'TRACE'])
         if trace_early:
             bm_args.extend(['-a', 'TRACE_EARLY'])
-        env = os.environ.copy()
+        if not env:
+            env = os.environ.copy()
         env['FTRACE'] = '1'
 
     result = buildman(*bm_args, dry_run=dry_run, env=env, capture=False)

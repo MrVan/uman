@@ -79,7 +79,7 @@ def setup_riscv_env(board, env):
         env (dict): Environment variables dict to update
     """
     # Select 32-bit or 64-bit OpenSBI based on board name
-    if 'riscv32' in board:
+    if 'riscv32' in board or 'mbv32' in board:
         opensbi = settings.get('opensbi_rv32', fallback=None)
         # Fallback: derive rv32 path from rv64 path
         if not opensbi:
@@ -153,7 +153,7 @@ def pytest_env(board):
     """
     env = {}
 
-    if 'riscv' in board:
+    if 'riscv' in board or 'mbv' in board:
         setup_riscv_env(board, env)
 
     if 'sbsa' in board:
@@ -178,6 +178,12 @@ def pytest_env(board):
             hooks = hooks_bin
         path_parts.append(hooks)
 
+    # Add custom QEMU build if present
+    qemu_build = settings.get('qemu_build_dir',
+                              fallback='~/dev/qemu/build')
+    if qemu_build and os.path.isdir(qemu_build):
+        path_parts.append(qemu_build)
+
     if path_parts:
         current_path = os.environ.get('PATH', '')
         env['PATH'] = ':'.join(path_parts) + ':' + current_path
@@ -199,12 +205,20 @@ def list_boards_by_pattern(pattern):
     try:
         if uboot_dir:
             os.chdir(uboot_dir)
-        result = command.run_pipe([['buildman', '-nv', pattern]], capture=True,
-                                   capture_stderr=True, raise_on_error=False)
+        result = command.run_pipe(
+            [[build_mod.get_buildman(), '-nv', pattern]], capture=True,
+            capture_stderr=True, raise_on_error=False)
     finally:
         os.chdir(orig_dir)
 
     if result.return_code != 0:
+        stderr = result.stderr.strip() if result.stderr else ''
+        stdout = result.stdout.strip() if result.stdout else ''
+        msg = stderr or stdout
+        if msg:
+            last = msg.splitlines()[-1]
+            if 'No matching' not in last:
+                tout.warning(f'buildman: {last}')
         return []
 
     boards = []
@@ -387,6 +401,54 @@ def get_qemu_binary(board, board_id):
     return None
 
 
+def show_pytest_hint(args):
+    """Show a hint about why pytest may have failed
+
+    Checks the test log for common failure patterns and prints a
+    helpful message.
+
+    Args:
+        args (argparse.Namespace): Arguments from cmdline
+    """
+    if args.output_dir:
+        build_dir = args.output_dir
+    else:
+        base_dir = settings.get('build_dir', '/tmp/b')
+        build_dir = f'{base_dir}/{args.board}'
+    log_path = os.path.join(build_dir, 'test-log.html')
+    if not os.path.exists(log_path):
+        return
+
+    try:
+        with open(log_path) as fh:
+            text = fh.read()
+    except OSError:
+        return
+
+    # Check for common QEMU failures
+    if 'Lab failure' in text or 'Marking connection bad' in text:
+        # Look for QEMU error in the log
+        import html as html_mod
+        plain = re.sub(r'<[^>]+>', '\n', text)
+        plain = html_mod.unescape(plain)
+        for line in plain.splitlines():
+            line = line.strip()
+            if ('qemu' in line.lower() and
+                    ('not found' in line or 'No such file' in line or
+                     'No machine' in line or 'unsupported' in line or
+                     'error' in line.lower())):
+                tout.notice(f'Hint: {line}')
+                if 'unsupported' in line or 'No machine' in line:
+                    tout.notice(
+                        'Try: uman setup qemu-build')
+                return
+            if 'Could not open' in line or 'Cannot open' in line:
+                tout.notice(f'Hint: {line}')
+                return
+        tout.notice('Hint: QEMU may have failed to start; check '
+                    f'{log_path}')
+
+
 def check_qemu_binary(board, board_id):
     """Check if the required QEMU binary is available
 
@@ -399,6 +461,10 @@ def check_qemu_binary(board, board_id):
     """
     binary = get_qemu_binary(board, board_id)
     if not binary:
+        return None, True
+
+    # Skip check if binary contains unexpanded shell variables
+    if '$' in binary:
         return None, True
 
     return binary, shutil.which(binary) is not None
@@ -939,6 +1005,107 @@ def run_c_test(args):
     return result.return_code
 
 
+def gdb_monitor(gdb_cmd, channel):
+    """Run GDB and auto-reconnect when the remote connection closes
+
+    Runs GDB in a pseudo-terminal to monitor its output. When
+    'Remote connection closed' appears, automatically sends reconnect
+    and continue commands so the debug session resumes after U-Boot
+    restarts.
+
+    Args:
+        gdb_cmd (list of str): GDB command and arguments
+        channel (str): Remote channel (e.g. 'localhost:1234')
+
+    Returns:
+        int: GDB exit code
+    """
+    import fcntl  # pylint: disable=import-outside-toplevel
+    import pty  # pylint: disable=import-outside-toplevel
+    import select  # pylint: disable=import-outside-toplevel
+    import signal  # pylint: disable=import-outside-toplevel
+    import termios  # pylint: disable=import-outside-toplevel
+    import tty  # pylint: disable=import-outside-toplevel
+
+    master_fd, slave_fd = pty.openpty()
+
+    # Copy host terminal size to pty
+    try:
+        winsz = fcntl.ioctl(sys.stdout, termios.TIOCGWINSZ, b'\0' * 8)
+        fcntl.ioctl(master_fd, termios.TIOCSWINSZ, winsz)
+    except OSError:
+        pass
+
+    proc = subprocess.Popen(
+        gdb_cmd, stdin=slave_fd, stdout=slave_fd, stderr=slave_fd,
+        preexec_fn=os.setsid, close_fds=True)
+    os.close(slave_fd)
+
+    # Forward terminal resizes to GDB
+    orig_winch = signal.getsignal(signal.SIGWINCH)
+
+    def on_winch(signo, frame):  # pylint: disable=unused-argument
+        try:
+            winsz = fcntl.ioctl(sys.stdout, termios.TIOCGWINSZ, b'\0' * 8)
+            fcntl.ioctl(master_fd, termios.TIOCSWINSZ, winsz)
+            os.kill(proc.pid, signal.SIGWINCH)
+        except OSError:
+            pass
+
+    signal.signal(signal.SIGWINCH, on_winch)
+
+    old_attr = termios.tcgetattr(sys.stdin)
+    try:
+        tty.setraw(sys.stdin)
+
+        buf = b''
+        trigger = b'Remote connection closed'
+        reconnect = f'target remote {channel}\nc\n'.encode()
+
+        while True:
+            try:
+                rlist = select.select(
+                    [sys.stdin, master_fd], [], [], 0.5)[0]
+            except (InterruptedError, select.error):
+                continue
+
+            if not rlist and proc.poll() is not None:
+                break
+
+            if sys.stdin in rlist:
+                try:
+                    data = os.read(sys.stdin.fileno(), 1024)
+                except OSError:
+                    break
+                if not data:
+                    break
+                os.write(master_fd, data)
+
+            if master_fd in rlist:
+                try:
+                    data = os.read(master_fd, 4096)
+                except OSError:
+                    break
+                if not data:
+                    break
+                os.write(sys.stdout.fileno(), data)
+
+                buf += data
+                if trigger in buf:
+                    buf = b''
+                    time.sleep(0.5)
+                    os.write(master_fd, reconnect)
+                elif len(buf) > 1024:
+                    buf = buf[-512:]
+
+        proc.wait()
+        return proc.returncode
+    finally:
+        termios.tcsetattr(sys.stdin, termios.TCSADRAIN, old_attr)
+        signal.signal(signal.SIGWINCH, orig_winch)
+        os.close(master_fd)
+
+
 def run_with_gdb(args):
     """Launch gdb to connect to an existing gdbserver
 
@@ -974,13 +1141,16 @@ def run_with_gdb(args):
         '-iex', 'handle SIGUSR2 nostop noprint pass',  # Used by sandbox coroutines
         '-ex', f'target remote {channel}',
     ]
+    for extra in args.gdb_cmd:
+        gdb_cmd.extend(['-ex', extra])
+    if args.bt:
+        gdb_cmd.extend(['-ex', 'bt', '-ex', 'quit'])
 
     if args.dry_run:
         print(' '.join(gdb_cmd))
         return 0
 
-    # Replace this process with gdb so Ctrl-C is handled by gdb
-    os.execvp(gdb_cmd[0], gdb_cmd)
+    return gdb_monitor(gdb_cmd, channel)
 
 
 def collect_tests(args):
@@ -1157,8 +1327,8 @@ def do_pollute(args):
         base_dir = settings.get('build_dir', '/tmp/b')
         build_dir = f'{base_dir}/{args.board}-pollute'
         tout.notice(f'Building to {build_dir}...')
-        cmd = ['buildman'] + build_mod.base_bm_args(args.board, build_dir,
-                                                    args.lto)
+        cmd = [build_mod.get_buildman()] + build_mod.base_bm_args(
+            args.board, build_dir, args.lto)
         result = exec_cmd(cmd, args.dry_run, capture=False)
         if result and result.return_code != 0:
             tout.error('Build failed')
@@ -1263,23 +1433,21 @@ def do_pytest(args):  # pylint: disable=too-many-return-statements,too-many-bran
         int: Exit code
     """
     if args.list_boards:
-        qemu_boards = list_qemu_boards()
-        sandbox_boards = list_boards_by_pattern('sandbox')
-        m68k_boards = list_boards_by_pattern('M5208')
-        if qemu_boards:
-            tout.notice('Available QEMU boards:')
-            for board in qemu_boards:
-                print(f'  {board}')
-        if m68k_boards:
-            tout.notice('Available m68k boards:')
-            for board in m68k_boards:
-                print(f'  {board}')
-        if sandbox_boards:
-            tout.notice('Available sandbox boards:')
-            for board in sandbox_boards:
-                print(f'  {board}')
-        if not qemu_boards and not sandbox_boards and not m68k_boards:
-            tout.warning('No boards found (is buildman configured?)')
+        found = False
+        for label, pattern in [('QEMU', 'qemu'), ('MicroBlaze', 'mbv'),
+                                ('m68k', 'M5208'),
+                                ('sandbox', 'sandbox')]:
+            boards = list_boards_by_pattern(pattern)
+            if boards:
+                tout.notice(f'Available {label} boards:')
+                for board in boards:
+                    print(f'  {board}')
+                found = True
+            elif not found:
+                # First pattern failed — database is probably empty
+                tout.warning(
+                    'No boards found (check ~/.buildman and $UBOOT_TOOLS)')
+                break
         return 0
 
     # Handle -C option: run just the C test part
@@ -1329,6 +1497,10 @@ def do_pytest(args):  # pylint: disable=too-many-return-statements,too-many-bran
         tout.notice('Try: uman setup qemu')
         return 1
 
+    # Handle --bt / --gdb-cmd implying -G
+    if (args.bt or args.gdb_cmd) and not args.gdb:
+        args.gdb = True
+
     # Handle -G: set gdb_phase if not already set
     if args.gdb and not args.gdb_phase:
         args.gdb_phase = 'u-boot'
@@ -1342,21 +1514,22 @@ def do_pytest(args):  # pylint: disable=too-many-return-statements,too-many-bran
             if cfg not in adjust_cfg:
                 adjust_cfg.append(cfg)
 
+        pytest_vars = pytest_env(args.board)
         if not build_mod.build_board(
                 args.board, args.dry_run, args.lto,
                 adjust_cfg=adjust_cfg,
                 force_reconfig=args.force_reconfig, fresh=args.fresh,
                 jobs=args.jobs, trace=args.trace,
                 trace_early=not args.no_trace_early,
-                output_dir=args.output_dir):
+                output_dir=args.output_dir, extra_env=pytest_vars):
             return 1
         args.build = False  # Don't build again in pytest
+    else:
+        pytest_vars = pytest_env(args.board)
 
     # Show -G command hint when using -g (not in dry-run mode)
     if args.gdb_phase and not args.gdb and not args.dry_run:
         tout.notice(f'In another terminal: um py -G -B {args.board}')
-
-    pytest_vars = pytest_env(args.board)
     cmd = build_pytest_cmd(args)
 
     env = os.environ.copy()
@@ -1381,6 +1554,7 @@ def do_pytest(args):  # pylint: disable=too-many-return-statements,too-many-bran
             print(result.stderr, file=sys.stderr)
         if not args.quiet:
             tout.error('pytest failed')
+            show_pytest_hint(args)
     else:
         if not args.quiet:
             tout.notice('pytest passed')

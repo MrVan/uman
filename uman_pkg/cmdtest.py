@@ -886,6 +886,43 @@ def check_signal(return_code):
     return None
 
 
+def run_gdb(cmd, args):
+    """Run sandbox under gdb-multiarch
+
+    Args:
+        cmd (list): Sandbox command and arguments
+        args (argparse.Namespace): Arguments from cmdline
+
+    Returns:
+        int: Exit code from gdb
+    """
+    import subprocess  # pylint: disable=import-outside-toplevel
+
+    run_args = shlex.join(cmd[1:])
+    gdb_cmd = [
+        'gdb-multiarch',
+        '-q',
+        cmd[0],
+        '-iex', 'set auto-load safe-path /',
+        '-iex', 'set debuginfod enabled off',
+        '-iex', 'set sysroot',
+        '-iex', 'handle SIGUSR2 nostop noprint pass',
+        '-ex', f'run {run_args}',
+    ]
+    for extra in args.gdb_cmd:
+        gdb_cmd.extend(['-ex', extra])
+    if args.bt:
+        gdb_cmd.extend(['-ex', 'bt', '-ex', 'quit'])
+
+    if args.dry_run:
+        tout.notice(shlex.join(gdb_cmd))
+        return 0
+
+    tout.info(f"Running: {shlex.join(gdb_cmd)}")
+    result = subprocess.run(gdb_cmd, check=False)
+    return result.returncode
+
+
 def run_tests(sandbox, specs, args, col):
     """Run sandbox tests
 
@@ -906,6 +943,9 @@ def run_tests(sandbox, specs, args, col):
                        manual=args.manual,
                        malloc_dump=args.malloc_dump,
                        leak_check=args.leak_check)
+
+    if args.gdb or args.bt or args.gdb_cmd:
+        return run_gdb(cmd, args)
 
     if args.dry_run:
         tout.notice(shlex.join(cmd))

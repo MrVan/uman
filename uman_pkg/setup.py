@@ -29,10 +29,18 @@ SETUP_COMPONENTS = {
     'efi': 'QEMU EFI firmware for ARM, ARM64, RISC-V and x86',
     'gcc': 'GCC cross-compiler and build dependencies',
     'qemu': 'QEMU emulators for all architectures',
+    'qemu-build': 'Build QEMU from source (for MicroBlaze etc.)',
     'opensbi': 'OpenSBI firmware for RISC-V',
     'tfa': 'ARM Trusted Firmware for QEMU SBSA',
     'xtensa': 'Xtensa dc233c toolchain',
 }
+
+QEMU_REPO = 'https://gitlab.com/qemu-project/qemu.git'
+
+# Targets needed for U-Boot testing
+QEMU_TARGETS = ('arm-softmmu,aarch64-softmmu,i386-softmmu,x86_64-softmmu,'
+                'riscv32-softmmu,riscv64-softmmu,ppc-softmmu,m68k-softmmu,'
+                'xtensa-softmmu,microblaze-softmmu')
 
 UM_FUNC = 'um() { b="$b" USRC="$USRC" command um "$@"; }'
 
@@ -252,6 +260,124 @@ def setup_qemu(args):
         return 1
 
     tout.notice('QEMU packages installed')
+    return 0
+
+
+# Build dependencies for QEMU from source
+QEMU_BUILD_DEPS = [
+    'git', 'build-essential', 'ninja-build', 'pkg-config',
+    'libglib2.0-dev', 'libpixman-1-dev', 'libslirp-dev',
+]
+
+
+def run_logged(cmd, log, desc, cwd=None):
+    """Run a command, appending output to a log file
+
+    Args:
+        cmd (list): Command and arguments
+        log (file): Open log file to append to
+        desc (str): Description for error messages
+        cwd (str or None): Working directory
+
+    Returns:
+        bool: True on success
+    """
+    log.write(f'## {desc}\n$ {" ".join(cmd)}\n')
+    log.flush()
+    result = command.run_pipe(
+        [cmd], capture=True, capture_stderr=True,
+        raise_on_error=False, cwd=cwd)
+    if result.stdout:
+        log.write(result.stdout)
+    if result.stderr:
+        log.write(result.stderr)
+    if result.return_code:
+        tout.error(f'{desc} failed (see {log.name})')
+        return False
+    return True
+
+
+def setup_qemu_build(args):
+    """Clone and build QEMU from source
+
+    Clones the QEMU git repo to ~/dev/qemu, builds it with the targets
+    needed for U-Boot testing. Output is logged to ~/dev/qemu/build.log
+
+    Args:
+        args (argparse.Namespace): Command line arguments
+
+    Returns:
+        int: Exit code (0 for success, non-zero for failure)
+    """
+    qemu_dir = os.path.expanduser('~/dev/qemu')
+    build_dir = os.path.join(qemu_dir, 'build')
+    log_path = os.path.join(qemu_dir, 'build.log')
+
+    if args.dry_run:
+        tout.notice(f'Would clone QEMU to {qemu_dir} and build')
+        return 0
+
+    # Install build dependencies
+    missing = []
+    for pkg in QEMU_BUILD_DEPS:
+        try:
+            command.output('dpkg', '-s', pkg)
+        except command.CommandExc:
+            missing.append(pkg)
+    if missing:
+        tout.notice(f'Installing build deps: {" ".join(missing)}')
+        result = command.run_pipe(
+            [['sudo', 'apt-get', 'install', '-y'] + missing],
+            capture=False, raise_on_error=False)
+        if result.return_code:
+            tout.error('Failed to install build dependencies')
+            return 1
+
+    # Clone or update (log to parent dir until clone creates qemu_dir)
+    parent = os.path.dirname(qemu_dir)
+    os.makedirs(parent, exist_ok=True)
+    tmp_log = os.path.join(parent, 'qemu-build.log')
+    need_clone = not os.path.isdir(os.path.join(qemu_dir, '.git'))
+
+    with open(tmp_log, 'w', encoding='utf-8') as log:
+        if not need_clone:
+            tout.progress('Updating QEMU source')
+            if not run_logged(
+                    ['git', '-C', qemu_dir, 'pull', '--ff-only'],
+                    log, 'git pull'):
+                tout.warning('git pull failed; building existing checkout')
+        else:
+            tout.progress('Cloning QEMU')
+            if not run_logged(
+                    ['git', 'clone', '--depth=1', QEMU_REPO, qemu_dir],
+                    log, 'git clone'):
+                return 1
+
+    # Move log into qemu dir now that it exists
+    shutil.move(tmp_log, log_path)
+
+    with open(log_path, 'a', encoding='utf-8') as log:
+
+        # Configure
+        os.makedirs(build_dir, exist_ok=True)
+        tout.progress('Configuring QEMU')
+        if not run_logged(
+                [os.path.join(qemu_dir, 'configure'),
+                 f'--target-list={QEMU_TARGETS}',
+                 '--disable-docs', '--disable-user'],
+                log, 'configure', cwd=build_dir):
+            return 1
+
+        # Build
+        jobs = os.cpu_count() or 4
+        tout.progress(f'Building QEMU ({jobs} jobs)')
+        if not run_logged(
+                ['make', f'-j{jobs}'],
+                log, 'make', cwd=build_dir):
+            return 1
+
+    tout.clear_progress()
+    tout.notice(f'QEMU built in {build_dir} (log: {log_path})')
     return 0
 
 
@@ -627,6 +753,7 @@ def do_setup(args):
         'efi': lambda: setup_efi(args),
         'gcc': lambda: setup_gcc(args),
         'qemu': lambda: setup_qemu(args),
+        'qemu-build': lambda: setup_qemu_build(args),
         'opensbi': lambda: setup_opensbi(blobs_dir, args),
         'tfa': lambda: setup_tfa(blobs_dir, args),
         'xtensa': lambda: setup_xtensa(blobs_dir, args),

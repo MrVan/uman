@@ -118,6 +118,7 @@ def make_args(**kwargs):
         'all': False,
         'bisect': None,
         'board': None,
+        'bt': False,
         'build': False,
         'build_dir': None,
         'c_test': False,
@@ -133,9 +134,11 @@ def make_args(**kwargs):
         'flattree_too': False,
         'fresh': False,
         'gdb': False,
+        'gdb_cmd': [],
         'gdb_phase': None,
         'gdbserver': None,
         'jobs': None,
+        'leak_check': False,
         'list_boards': False,
         'lto': False,
         'malloc_dump': None,
@@ -147,6 +150,7 @@ def make_args(**kwargs):
         'pollute': None,
         'pytest': None,
         'quiet': False,
+        'remote': None,
         'setup_only': False,
         'show_cmd': False,
         'show_output': False,
@@ -864,7 +868,7 @@ CONFIG_DM_TEST=y
     def test_config_grep(self):
         """Test config grep finds matches"""
         args = cmdline.parse_args(['config', '-B', 'sandbox', '-g', 'VIDEO',
-                                   '--build-dir', self.build_dir])
+                                   '-o', self.build_dir])
         with terminal.capture() as (out, _):
             ret = cmdconfig.run(args)
         self.assertEqual(0, ret)
@@ -874,7 +878,7 @@ CONFIG_DM_TEST=y
     def test_config_grep_case_insensitive(self):
         """Test config grep is case-insensitive"""
         args = cmdline.parse_args(['config', '-B', 'sandbox', '-g', 'video',
-                                   '--build-dir', self.build_dir])
+                                   '-o', self.build_dir])
         with terminal.capture() as (out, _):
             ret = cmdconfig.run(args)
         self.assertEqual(0, ret)
@@ -884,7 +888,7 @@ CONFIG_DM_TEST=y
         """Test config grep with no matches"""
         args = cmdline.parse_args(
             ['config', '-B', 'sandbox', '-g', 'NONEXISTENT',
-             '--build-dir', self.build_dir])
+             '-o', self.build_dir])
         with terminal.capture() as (out, _):
             ret = cmdconfig.run(args)
         self.assertEqual(0, ret)
@@ -914,7 +918,7 @@ CONFIG_DM_TEST=y
     def test_config_missing_config_file(self):
         """Test config fails when .config not found"""
         args = cmdline.parse_args(['config', '-B', 'sandbox', '-g', 'VIDEO',
-                                   '--build-dir', '/nonexistent/path'])
+                                   '-o', '/nonexistent/path'])
         with terminal.capture() as (_, err):
             ret = cmdconfig.run(args)
         self.assertEqual(1, ret)
@@ -936,7 +940,7 @@ CONFIG_DM_TEST=y
             return command.CommandResult(return_code=0)
 
         args = cmdline.parse_args(['config', '-B', 'sandbox', '-s',
-                                   '--build-dir', self.build_dir])
+                                   '-o', self.build_dir])
         # Create defconfig in build dir for copy
         with open(os.path.join(self.build_dir, 'defconfig'), 'w',
                   encoding='utf-8') as outf:
@@ -975,7 +979,7 @@ CONFIG_DM_TEST=y
             return command.CommandResult(return_code=0)
 
         args = cmdline.parse_args(['config', '-B', 'sandbox', '-m',
-                                   '--build-dir', self.build_dir])
+                                   '-o', self.build_dir])
         # Create defconfig in build dir
         with open(os.path.join(self.build_dir, 'defconfig'), 'w',
                   encoding='utf-8') as outf:
@@ -997,6 +1001,75 @@ CONFIG_DM_TEST=y
         self.assertIn('make', cap[1])
         self.assertIn('savedefconfig', cap[1])
         self.assertEqual('meld', cap[2][0])
+
+    def test_find_function(self):
+        """Test finding a function in the binary"""
+        # Create a source tree with cmd/version.c so prefix stripping works
+        src_dir = os.path.join(self.test_dir, 'src')
+        os.makedirs(os.path.join(src_dir, 'cmd'))
+        with open(os.path.join(src_dir, 'cmd', 'version.c'), 'w',
+                  encoding='utf-8') as outf:
+            outf.write('')
+
+        nm_output = ('0000000000073fb2 t do_version\n'
+                     '0000000000073fc0 T do_version_cmd\n'
+                     '00000000000886c5 t do_mem_md\n')
+        addr2line_output = ('/build/env/cmd/version.c:18\n'
+                            '/build/env/cmd/version.c:30\n')
+        binary = os.path.join(self.build_dir, 'u-boot')
+        with open(binary, 'w', encoding='utf-8') as outf:
+            outf.write('')
+
+        def mock_run(*cmd_args, **kwargs):
+            if cmd_args[0] == 'nm':
+                return command.CommandResult(return_code=0,
+                                             stdout=nm_output)
+            return command.CommandResult(return_code=0,
+                                         stdout=addr2line_output)
+
+        args = cmdline.parse_args(['config', '-B', 'sandbox', '-f',
+                                   'do_version', '-o', self.build_dir])
+        with mock.patch.object(command, 'run_one', mock_run):
+            with mock.patch.object(cmdconfig, 'get_uboot_dir',
+                                   return_value=src_dir):
+                with terminal.capture() as (out, err):
+                    ret = cmdconfig.do_find(args)
+
+        self.assertEqual(0, ret)
+        self.assertEqual('do_version: cmd/version.c:18\n'
+                         'do_version_cmd: cmd/version.c:30\n',
+                         out.getvalue())
+        self.assertFalse(err.getvalue())
+
+    def test_find_function_no_match(self):
+        """Test finding a function with no matches"""
+        nm_output = '0000000000073fb2 t do_version\n'
+        binary = os.path.join(self.build_dir, 'u-boot')
+        with open(binary, 'w', encoding='utf-8') as outf:
+            outf.write('')
+
+        def mock_run(*cmd_args, **kwargs):
+            return command.CommandResult(return_code=0, stdout=nm_output)
+
+        args = cmdline.parse_args(['config', '-B', 'sandbox', '-f',
+                                   'nonexistent', '-o', self.build_dir])
+        with mock.patch.object(command, 'run_one', mock_run):
+            with terminal.capture() as (out, err):
+                ret = cmdconfig.do_find(args)
+
+        self.assertEqual(1, ret)
+        self.assertFalse(out.getvalue())
+
+    def test_find_function_no_binary(self):
+        """Test finding a function when binary does not exist"""
+        args = cmdline.parse_args(['config', '-B', 'sandbox', '-f',
+                                   'do_version', '-o', self.build_dir])
+        # Remove the build dir contents (no u-boot binary)
+        with terminal.capture() as (out, err):
+            ret = cmdconfig.do_find(args)
+
+        self.assertEqual(1, ret)
+        self.assertFalse(out.getvalue())
 
 
 class TestGitSubcommand(TestBase):
@@ -2122,6 +2195,42 @@ class TestGitSubcommand(TestBase):
         self.assertEqual(0, result.return_code)
         self.assertEqual(('rebase', '-i', 'HEAD~5'), cap[0])
 
+    def test_do_rf_with_hash(self):
+        """Test do_rf with a commit hash rebases from its parent"""
+        cap = []
+
+        def mock_git(*args, env=None, dry_run=None):
+            del env, dry_run
+            cap.append(args)
+            return mock.Mock(return_code=0, stdout='', stderr='')
+
+        args = cmdline.parse_args(['git', 'rf', 'abc1234'])
+        with mock.patch('uman_pkg.cmdgit.git', mock_git):
+            with mock.patch.object(cmdgit, 'has_unstaged_changes',
+                                   return_value=False):
+                result = cmdgit.do_rf(args)
+        self.assertEqual(0, result.return_code)
+        self.assertEqual(('rebase', '-i', 'abc1234~1'), cap[0])
+
+    def test_do_rp_with_hash(self):
+        """Test do_rp with a commit hash"""
+        cap_env = []
+
+        def mock_git(*args, env=None, dry_run=None):
+            del args, dry_run
+            cap_env.append(env)
+            return mock.Mock(return_code=0, stdout='', stderr='')
+
+        args = cmdline.parse_args(['git', 'rp', 'abc1234'])
+        with mock.patch('uman_pkg.cmdgit.git', mock_git):
+            with mock.patch.object(cmdgit, 'get_upstream',
+                                   return_value='origin/main'):
+                result = cmdgit.do_rp(args)
+        self.assertEqual(0, result.return_code)
+        editor = cap_env[0]['GIT_SEQUENCE_EDITOR']
+        self.assertIn('abc1234', editor)
+        self.assertIn('edit', editor)
+
     def test_do_rf_unstaged_changes(self):
         """Test do_rf fails with unstaged changes"""
         args = cmdline.parse_args(['git', 'rf'])
@@ -2138,7 +2247,7 @@ class TestGitSubcommand(TestBase):
         with terminal.capture() as (_, err):
             result = cmdgit.do_rp(args)
         self.assertEqual(1, result)
-        self.assertIn('Patch number required', err.getvalue())
+        self.assertIn('Patch number or commit hash required', err.getvalue())
 
 
 class TestGitRebase(TestBase, GitRepoMixin):
@@ -2923,6 +3032,104 @@ class TestUmanCI(TestBase):
             '-o ci.variable=WORLD=0 -o ci.variable=SJG_LAB= ci master\n',
             out.getvalue())
 
+    def test_ci_custom_remote(self):
+        """Test CI command with -r uses the specified remote"""
+        self._create_git_repo()
+
+        args = make_args(dry_run=True, remote='upstream')
+        with terminal.capture() as (out, _):
+            res = control.do_ci(args)
+        self.assertEqual(0, res)
+        output = out.getvalue()
+        self.assertIn('upstream master', output)
+        self.assertNotIn(' ci ', output)
+
+    def test_ci_remote_from_settings(self):
+        """Test CI command uses ci_remote from settings"""
+        self._create_git_repo()
+
+        args = make_args(dry_run=True)
+        with mock.patch.object(settings, 'get',
+                               side_effect=lambda k, **kw:
+                               'origin' if k == 'ci_remote' else
+                               kw.get('fallback')):
+            with terminal.capture() as (out, _):
+                res = control.do_ci(args)
+        self.assertEqual(0, res)
+        output = out.getvalue()
+        self.assertIn('origin master', output)
+
+    def test_ci_remote_auto_detect(self):
+        """Test CI command auto-detects remote from upstream tracking ref"""
+        self._create_git_repo()
+
+        args = make_args(dry_run=True)
+        with mock.patch.object(control, 'detect_upstream_remote',
+                               return_value='us'):
+            with mock.patch.object(control, 'get_remote_map',
+                                   return_value={}):
+                with terminal.capture() as (out, _):
+                    res = control.do_ci(args)
+        self.assertEqual(0, res)
+        output = out.getvalue()
+        self.assertIn('us master', output)
+
+    def test_detect_upstream_remote(self):
+        """Test detect_upstream_remote parses tracking ref"""
+        self._create_git_repo()
+
+        # No upstream set - should return None
+        result = control.detect_upstream_remote()
+        self.assertIsNone(result)
+
+    def test_detect_upstream_remote_from_history(self):
+        """Test detect_upstream_remote finds remote from commit history"""
+        log_output = ('el/loada-us, dm/loada-us\n'
+                      'us/next, us/WIP/23Mar2026-next\n')
+        result = command.CommandResult(return_code=0, stdout=log_output)
+
+        with mock.patch.object(command, 'output_one_line',
+                               side_effect=command.CommandExc('no upstream',
+                                                              None)):
+            with mock.patch.object(command, 'run_one',
+                                   return_value=result):
+                remote = control.detect_upstream_remote()
+        self.assertEqual('us', remote)
+
+    def test_ci_remote_map(self):
+        """Test CI remote mapping from upstream to push remote"""
+        self._create_git_repo()
+
+        args = make_args(dry_run=True)
+        with mock.patch.object(control, 'detect_upstream_remote',
+                               return_value='us'):
+            with mock.patch.object(settings, 'get',
+                                   side_effect=lambda k, **kw:
+                                   'us:dm' if k == 'ci_remote_map' else
+                                   kw.get('fallback')):
+                with terminal.capture() as (out, _):
+                    res = control.do_ci(args)
+        self.assertEqual(0, res)
+        output = out.getvalue()
+        self.assertIn('dm master', output)
+
+    def test_ci_remote_map_no_match(self):
+        """Test CI remote mapping with no matching entry"""
+        self._create_git_repo()
+
+        args = make_args(dry_run=True)
+        with mock.patch.object(control, 'detect_upstream_remote',
+                               return_value='us'):
+            with mock.patch.object(settings, 'get',
+                                   side_effect=lambda k, **kw:
+                                   'ub:ci' if k == 'ci_remote_map' else
+                                   kw.get('fallback')):
+                with terminal.capture() as (out, _):
+                    res = control.do_ci(args)
+        self.assertEqual(0, res)
+        output = out.getvalue()
+        self.assertIn('us master', output)
+
     def test_exec_cmd_dry_run(self):
         """Test exec_cmd in dry-run mode shows command"""
         with terminal.capture() as (out, err):
@@ -2950,6 +3157,8 @@ class TestUmanCI(TestBase):
             return command.CommandResult(stdout='', return_code=0)
 
         with mock.patch.object(control, 'exec_cmd', mock_exec):
+          with mock.patch.object(control, 'detect_upstream_remote',
+                                 return_value=None):
             # Test default destination (None means use current branch name)
             args = make_args(dry_run=False, dest=None)
             with terminal.capture():
@@ -3461,6 +3670,47 @@ qemu_binary="nonexistent-qemu-xyz"
         self.assertIn('/tmp/b/sandbox/u-boot', output)
         self.assertIn('target remote localhost:1234', output)
         self.assertIn('handle SIGUSR2 nostop noprint pass', output)
+
+    def test_pytest_gdb_bt_dry_run(self):
+        """Test pytest --bt with dry-run adds bt and quit to gdb command"""
+        args = make_args(cmd='pytest', board='sandbox',
+                         gdb_phase='u-boot',
+                         gdb=True, bt=True, dry_run=True)
+
+        with terminal.capture() as (out, _):
+            res = control.run_command(args)
+
+        self.assertEqual(0, res)
+        output = out.getvalue()
+        self.assertIn('gdb-multiarch', output)
+        self.assertIn('-ex bt -ex quit', output)
+
+    def test_pytest_gdb_cmd_dry_run(self):
+        """Test pytest --gdb-cmd with dry-run adds extra gdb commands"""
+        args = make_args(cmd='pytest', board='sandbox',
+                         gdb_phase='u-boot',
+                         gdb=True, gdb_cmd=['info reg', 'bt'],
+                         dry_run=True)
+
+        with terminal.capture() as (out, _):
+            res = control.run_command(args)
+
+        self.assertEqual(0, res)
+        output = out.getvalue()
+        self.assertIn('gdb-multiarch', output)
+        self.assertIn('-ex info reg -ex bt', output)
+
+    def test_pytest_bt_implies_gdb(self):
+        """Test pytest --bt implies -G"""
+        args = make_args(cmd='pytest', board='sandbox',
+                         bt=True, dry_run=True)
+
+        with terminal.capture() as (out, _):
+            res = control.run_command(args)
+
+        self.assertEqual(0, res)
+        output = out.getvalue()
+        self.assertIn('gdb-multiarch', output)
 
     def test_get_uboot_dir_current(self):
         """Test get_uboot_dir finds U-Boot in current directory"""
@@ -5996,6 +6246,101 @@ Section Headers:
                 with terminal.capture():
                     result = cmdtest.ensure_dm_init_files()
         self.assertFalse(result)
+
+    def test_run_tests_gdb(self):
+        """Test run_tests with -g launches gdb-multiarch"""
+        cap = []
+
+        def mock_run(cmd, **kwargs):
+            cap.append((cmd, kwargs))
+            return mock.MagicMock(returncode=0)
+
+        args = cmdline.parse_args(['test', '-g', 'dm'])
+        col = terminal.Color()
+        with mock.patch.object(cmdtest, 'has_emit_result',
+                               return_value=True):
+            with mock.patch.object(cmdtest, 'has_no_flat',
+                                   return_value=True):
+                with mock.patch.object(cmdtest, 'ensure_dm_init_files',
+                                       return_value=True):
+                    with mock.patch('subprocess.run', mock_run):
+                        with terminal.capture():
+                            result = cmdtest.run_tests(
+                                '/sb', [('dm', None)], args, col)
+        self.assertEqual(0, result)
+        cmd = cap[0][0]
+        self.assertEqual('gdb-multiarch', cmd[0])
+        self.assertIn('/sb', cmd)
+        self.assertIn('run -T -F -c \'ut -E dm\'', cmd[-1])
+
+    def test_run_tests_gdb_dry_run(self):
+        """Test run_tests with -g and -n shows gdb command"""
+        args = cmdline.parse_args(['-n', 'test', '-g', 'dm'])
+        col = terminal.Color()
+        with mock.patch.object(cmdtest, 'has_emit_result',
+                               return_value=True):
+            with mock.patch.object(cmdtest, 'has_no_flat',
+                                   return_value=True):
+                with mock.patch.object(cmdtest, 'ensure_dm_init_files',
+                                       return_value=True):
+                    with terminal.capture() as (out, err):
+                        result = cmdtest.run_tests(
+                            '/sb', [('dm', None)], args, col)
+        self.assertEqual(0, result)
+        output = out.getvalue()
+        self.assertIn('gdb-multiarch', output)
+        self.assertIn('/sb', output)
+
+    def test_run_tests_gdb_bt(self):
+        """Test run_tests with --bt adds backtrace and quit commands"""
+        cap = []
+
+        def mock_run(cmd, **kwargs):
+            cap.append((cmd, kwargs))
+            return mock.MagicMock(returncode=0)
+
+        args = cmdline.parse_args(['test', '--bt', 'dm'])
+        col = terminal.Color()
+        with mock.patch.object(cmdtest, 'has_emit_result',
+                               return_value=True):
+            with mock.patch.object(cmdtest, 'has_no_flat',
+                                   return_value=True):
+                with mock.patch.object(cmdtest, 'ensure_dm_init_files',
+                                       return_value=True):
+                    with mock.patch('subprocess.run', mock_run):
+                        with terminal.capture():
+                            result = cmdtest.run_tests(
+                                '/sb', [('dm', None)], args, col)
+        self.assertEqual(0, result)
+        cmd = cap[0][0]
+        self.assertEqual('gdb-multiarch', cmd[0])
+        self.assertEqual(['-ex', 'bt', '-ex', 'quit'], cmd[-4:])
+
+    def test_run_tests_gdb_cmd(self):
+        """Test run_tests with --gdb-cmd adds extra gdb commands"""
+        cap = []
+
+        def mock_run(cmd, **kwargs):
+            cap.append((cmd, kwargs))
+            return mock.MagicMock(returncode=0)
+
+        args = cmdline.parse_args(['test', '--gdb-cmd', 'info reg',
+                                   '--gdb-cmd', 'bt', 'dm'])
+        col = terminal.Color()
+        with mock.patch.object(cmdtest, 'has_emit_result',
+                               return_value=True):
+            with mock.patch.object(cmdtest, 'has_no_flat',
+                                   return_value=True):
+                with mock.patch.object(cmdtest, 'ensure_dm_init_files',
+                                       return_value=True):
+                    with mock.patch('subprocess.run', mock_run):
+                        with terminal.capture():
+                            result = cmdtest.run_tests(
+                                '/sb', [('dm', None)], args, col)
+        self.assertEqual(0, result)
+        cmd = cap[0][0]
+        self.assertEqual('gdb-multiarch', cmd[0])
+        self.assertEqual(['-ex', 'info reg', '-ex', 'bt'], cmd[-4:])
 
 
 class TestPytestCTest(TestBase):

@@ -20,6 +20,25 @@ from u_boot_pylib import tout
 from uman_pkg.util import exec_cmd, git, git_output, git_output_quiet
 
 
+def is_commit_hash(arg):
+    """Check if an argument looks like a commit hash rather than a number
+
+    Args:
+        arg (str): Argument to check
+
+    Returns:
+        bool: True if this looks like a commit hash
+    """
+    if arg.isdigit():
+        return False
+    # Accept hex strings (short or full SHA) and refs like HEAD~2
+    try:
+        git_output_quiet('rev-parse', '--verify', f'{arg}^{{commit}}')
+        return True
+    except command.CommandExc:
+        return False
+
+
 def _count_breaks(path, fname):
     """Count 'break' lines in a rebase file
 
@@ -144,6 +163,30 @@ def seq_edit_env(action, line=1):
                   f"lines=open(p).readlines(); "
                   f"lines[{line - 1}]=re.sub(r'^pick','edit',lines[{line - 1}]); "
                   f"open(p,'w').writelines(lines)")
+    env['GIT_SEQUENCE_EDITOR'] = f'python3 -c "{script}"'
+    return env
+
+
+def seq_edit_env_hash(commit):
+    """Create environment with GIT_SEQUENCE_EDITOR that edits by commit hash
+
+    The editor finds the line starting with 'pick <hash>' where hash is a
+    prefix of the given commit, and changes 'pick' to 'edit'.
+
+    Args:
+        commit (str): Commit hash (short or full)
+
+    Returns:
+        dict: Environment with GIT_SEQUENCE_EDITOR set
+    """
+    env = os.environ.copy()
+    script = (f"import sys,re; p=sys.argv[1]; "
+              f"lines=open(p).readlines(); "
+              f"lines=[re.sub(r'^pick',r'edit',ln) "
+              f"if ln.split()[1].startswith('{commit}') "
+              f"or '{commit}'.startswith(ln.split()[1]) "
+              f"else ln for ln in lines]; "
+              f"open(p,'w').writelines(lines)")
     env['GIT_SEQUENCE_EDITOR'] = f'python3 -c "{script}"'
     return env
 
@@ -280,7 +323,8 @@ def do_rf(args):
 
     Args:
         args (argparse.Namespace): Arguments from cmdline
-            args.arg: Number of commits back from HEAD, or None for upstream
+            args.arg: Number of commits back from HEAD, commit hash, or
+                None for upstream
 
     Returns:
         CommandResult or int: Result with return_code, stdout, stderr; or 0
@@ -290,7 +334,10 @@ def do_rf(args):
         return 1
 
     if args.arg:
-        target = f'HEAD~{args.arg}'
+        if args.arg.isdigit():
+            target = f'HEAD~{args.arg}'
+        else:
+            target = f'{args.arg}~1'
     else:
         target = get_upstream()
         if not target:
@@ -306,17 +353,17 @@ def do_rf(args):
 
 
 def do_rp(args):
-    """Rebase to upstream, stop at patch N for editing
+    """Rebase to upstream, stop at patch N or commit hash for editing
 
     Args:
         args (argparse.Namespace): Arguments from cmdline
-            args.arg: Patch number (0 = upstream, before first commit)
+            args.arg: Patch number (0 = upstream), or commit hash
 
     Returns:
         CommandResult or int: Result with return_code, stdout, stderr; or 0
     """
     if args.arg is None:
-        tout.error('Patch number required: um git rp N')
+        tout.error('Patch number or commit hash required: um git rp N')
         return 1
 
     target = get_upstream()
@@ -324,11 +371,16 @@ def do_rp(args):
         tout.error('Cannot determine upstream branch')
         return 1
 
-    patch_num = int(args.arg)
-    if patch_num == 0:
-        env = seq_edit_env('break')
+    if args.arg.isdigit():
+        patch_num = int(args.arg)
+        if patch_num == 0:
+            env = seq_edit_env('break')
+        else:
+            env = seq_edit_env('edit', patch_num)
     else:
-        env = seq_edit_env('edit', patch_num)
+        # Commit hash: use a sequence editor that finds and edits it
+        commit = args.arg
+        env = seq_edit_env_hash(commit)
 
     result = git('rebase', '-i', target, env=env, dry_run=args.dry_run)
     if result is None:
@@ -465,22 +517,40 @@ def do_rn(args):
     with open(todo_file, 'r', encoding='utf-8') as inf:
         lines = inf.readlines()
 
-    # Find non-comment lines
-    skip_count = int(args.arg) if args.arg else 1
-    non_comment_indices = []
-    for i, line in enumerate(lines):
-        if line.strip() and not line.startswith('#'):
-            non_comment_indices.append(i)
-            if len(non_comment_indices) >= skip_count:
-                break
-
-    if non_comment_indices:
-        # Change the last one to 'edit'
+    # Find the target line to set to 'edit'
+    if args.arg and not args.arg.isdigit():
+        # Commit hash: find the matching line
+        target_idx = None
+        for i, line in enumerate(lines):
+            stripped = line.strip()
+            if not stripped or stripped.startswith('#'):
+                continue
+            parts = stripped.split()
+            if len(parts) >= 2:
+                h = parts[1]
+                if h.startswith(args.arg) or args.arg.startswith(h):
+                    target_idx = i
+                    break
+        if target_idx is None:
+            tout.error(f'Commit {args.arg} not found in rebase todo')
+            return 1
+    else:
+        skip_count = int(args.arg) if args.arg else 1
+        non_comment_indices = []
+        for i, line in enumerate(lines):
+            if line.strip() and not line.startswith('#'):
+                non_comment_indices.append(i)
+                if len(non_comment_indices) >= skip_count:
+                    break
+        if not non_comment_indices:
+            tout.error('No commits left in rebase todo')
+            return 1
         target_idx = non_comment_indices[-1]
-        lines[target_idx] = re.sub(r'^\S+', 'edit', lines[target_idx])
 
-        with open(todo_file, 'w', encoding='utf-8') as outf:
-            outf.writelines(lines)
+    lines[target_idx] = re.sub(r'^\S+', 'edit', lines[target_idx])
+
+    with open(todo_file, 'w', encoding='utf-8') as outf:
+        outf.writelines(lines)
 
     result = git('rebase', '--continue')
     show_rebase_status(result.stdout + result.stderr, result.return_code)
@@ -687,28 +757,30 @@ def do_rd(args):
     with open(todo_file, 'r', encoding='utf-8') as inf:
         lines = inf.readlines()
 
-    # Parse args: if first arg is a digit, it's the commit number
+    # Parse args: digit = position, commit hash = direct, else file path
     extra = list(args.extra) if args.extra else []
+    commit_hash = None
     if args.arg and args.arg.isdigit():
         target = int(args.arg)
+    elif args.arg and is_commit_hash(args.arg):
+        commit_hash = args.arg
     else:
         target = 1
         if args.arg:
             extra.insert(0, args.arg)
 
-    # Find the nth non-comment, non-empty line
-    count = 0
-    commit_hash = None
-    for line in lines:
-        line = line.strip()
-        if line and not line.startswith('#'):
-            count += 1
-            if count == target:
-                # Line format: "pick abc1234 commit message"
-                parts = line.split()
-                if len(parts) >= 2:
-                    commit_hash = parts[1]
-                break
+    if not commit_hash:
+        # Find the nth non-comment, non-empty line
+        count = 0
+        for line in lines:
+            line = line.strip()
+            if line and not line.startswith('#'):
+                count += 1
+                if count == target:
+                    parts = line.split()
+                    if len(parts) >= 2:
+                        commit_hash = parts[1]
+                    break
 
     if not commit_hash:
         tout.error(f'No commit found at position {target}')
@@ -1459,8 +1531,10 @@ def run(args):
         return print_aliases()
 
     if not args.action:
-        tout.error('Action required (or use -a for aliases)')
-        return 1
+        print('Available actions:')
+        for action in GIT_ACTIONS:
+            print(f'  {action.short:5s} {action.long:20s} {action.name}')
+        return 0
 
     # Resolve alias to short name
     action = ACTION_ALIASES.get(args.action, args.action)
